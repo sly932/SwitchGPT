@@ -7,9 +7,14 @@ repository_root="$(cd "$script_directory/.." && pwd)"
 export_root="$repository_root/.build/public-export"
 candidate_root="$repository_root/.build/public-release-repo"
 expected_candidate_root="$repository_root/.build/public-release-repo"
+version="${SWITCHGPT_VERSION:-0.2.0}"
 
 if [[ "$candidate_root" != "$expected_candidate_root" ]]; then
   echo "refusing unexpected public candidate path: $candidate_root" >&2
+  exit 64
+fi
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "SWITCHGPT_VERSION must be a stable three-component version" >&2
   exit 64
 fi
 
@@ -28,7 +33,7 @@ fi
 /usr/bin/git -C "$candidate_root" config user.name "SwitchGPT Release Builder"
 /usr/bin/git -C "$candidate_root" config user.email "noreply@switchgpt.local"
 /usr/bin/git -C "$candidate_root" add --all
-/usr/bin/git -C "$candidate_root" commit -q -m "SwitchGPT 0.1.0 public release candidate"
+/usr/bin/git -C "$candidate_root" commit -q -m "SwitchGPT $version public release candidate"
 
 "$script_directory/audit-public-repo.sh" --strict --root "$candidate_root"
 "$script_directory/audit-public-history.sh" \

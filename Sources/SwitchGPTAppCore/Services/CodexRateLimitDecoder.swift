@@ -24,7 +24,9 @@ public enum CodexRateLimitDecoder {
       weekly: weekly,
       fiveHour: fiveHour,
       credits: decodeCredits(limit["credits"]),
-      creditsWereLoaded: true
+      creditsWereLoaded: true,
+      resetCredits: decodeResetCredits(root["rateLimitResetCredits"]),
+      resetCreditsWereLoaded: true
     )
   }
 
@@ -78,6 +80,68 @@ public enum CodexRateLimitDecoder {
       unlimited: unlimited,
       points: points.flatMap { $0 >= 0 ? $0 : nil }
     )
+  }
+
+  private static func decodeResetCredits(_ value: Any?) -> RateLimitResetCreditsSummary? {
+    guard let object = value as? [String: Any],
+      let availableCount = nonnegativeInteger(from: object["availableCount"])
+    else {
+      return nil
+    }
+
+    let credits: [RateLimitResetCredit]?
+    if object["credits"] == nil || object["credits"] is NSNull {
+      credits = nil
+    } else if let rows = object["credits"] as? [Any] {
+      credits = rows.compactMap(decodeAvailableResetCredit)
+    } else {
+      credits = nil
+    }
+
+    return RateLimitResetCreditsSummary(
+      availableCount: availableCount,
+      credits: credits
+    )
+  }
+
+  private static func decodeAvailableResetCredit(_ value: Any) -> RateLimitResetCredit? {
+    guard let object = value as? [String: Any],
+      object["status"] as? String == "available"
+    else {
+      return nil
+    }
+
+    let expiresAt: Date?
+    if object["expiresAt"] == nil || object["expiresAt"] is NSNull {
+      expiresAt = nil
+    } else {
+      guard let seconds = number(from: object["expiresAt"]),
+        seconds.isFinite,
+        seconds >= 0
+      else {
+        return nil
+      }
+      expiresAt = Date(timeIntervalSince1970: seconds)
+    }
+
+    return RateLimitResetCredit(expiresAt: expiresAt)
+  }
+
+  private static func nonnegativeInteger(from value: Any?) -> Int? {
+    if let number = value as? NSNumber,
+      CFGetTypeID(number) == CFBooleanGetTypeID()
+    {
+      return nil
+    }
+    guard let number = number(from: value),
+      number.isFinite,
+      number >= 0,
+      number.rounded(.towardZero) == number,
+      number <= Double(Int.max)
+    else {
+      return nil
+    }
+    return Int(number)
   }
 
   private static func decimal(from value: Any?) -> Decimal? {

@@ -560,7 +560,7 @@ public final class SwitchGPTAppStore {
     accounts.contains { account in
       guard case .codexHome = account.source else { return false }
       return account.email == nil || account.planName == "ChatGPT" || account.planName == "Unknown"
-        || !account.usage.creditsWereLoaded
+        || !account.usage.creditsWereLoaded || !account.usage.resetCreditsWereLoaded
     }
   }
 

@@ -1,10 +1,12 @@
-# Public alpha release contract
+# Public release contract
 
 This document defines what may be published from this repository.
 
-`0.1.0-alpha.1` is the first public alpha. The source, tag, GitHub Release, and binary are published only from the isolated audited tree described below.
+`0.2.0` is the first stable public release. The source, tag, GitHub Release, and
+binary are published only from the isolated audited tree described below.
+Earlier `0.1.0-alpha.*` releases remain historical prereleases.
 
-## Public in `0.1.0-alpha.1`
+## Public in `0.2.0`
 
 - SwiftPM sources, mock UI, tests, and documentation.
 - The read-only quota decoder and its isolated app-server reader.
@@ -35,8 +37,8 @@ Before a public tag, GitHub Release, or distributable binary:
 
 The real A↔B test is a release decision gate only. Passing it does not by
 itself enable default switching or authorize publishing an unreviewed
-credential-handling adapter; this alpha publishes only the reviewed adapter and
-keeps it default-off.
+credential-handling adapter; this release publishes only the reviewed adapter
+and keeps it default-off.
 
 For a distributable artifact, follow [MACOS_DISTRIBUTION.md](MACOS_DISTRIBUTION.md). `Scripts/package-release.sh` rejects Apple Development signatures, and `Scripts/notarize-release.sh` is the only explicit Apple submission step. Apple Development signatures are suitable for local bundle verification only; they are not a public Gatekeeper release.
 
@@ -59,7 +61,7 @@ The 2026-08-15 private gate failed because the submitted-job controller caused r
 
 On 2026-08-16 the replacement independent app/helper path completed a real A→B→A round trip with one stable ChatGPT process and zero lifecycle residue. A separately authorized B→A failure injection then produced an append-only receipt recording `rolledBack`, final B, one target launch, one rollback launch, and `targetIdentityMismatch`; the UI reported safe restoration and this Codex task resumed after restart. The real-switch safety gate is complete. An isolated, no-remote, single-commit public-history candidate passes the current tests, the 26/26 matrix, website build, strict tree audit, and complete history audit. The product owner has also confirmed private OpenAI permission covering the current product name and icon; the exact private correspondence is intentionally not included.
 
-The public alpha provides real quota, managed sign-in, and a default-off experimental adapter. The real-switch gate has passed, but switching remains explicitly experimental and requires explicit confirmation for every operation.
+The public stable release provides real quota, managed sign-in, reset-credit visibility, stable-release reminders, and a default-off experimental adapter. The real-switch gate has passed, but switching remains explicitly experimental and requires explicit confirmation for every operation.
 
 The experimental adapter fails closed before quitting ChatGPT unless the fixed
 application path has the expected bundle identifier, strict valid signature,
@@ -75,5 +77,5 @@ On 2026-08-17, the user explicitly authorized creating a Developer ID Applicatio
 The current official OpenAI brand guidelines are retained as the baseline for
 interoperability language and logo use. The product owner has confirmed private
 permission covering the current name and icon, so no rename is required for this
-alpha. See [BRAND_RELEASE_REVIEW.md](BRAND_RELEASE_REVIEW.md); the repository does
+release. See [BRAND_RELEASE_REVIEW.md](BRAND_RELEASE_REVIEW.md); the repository does
 not include private authorization correspondence.

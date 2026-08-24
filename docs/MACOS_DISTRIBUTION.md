@@ -24,8 +24,8 @@ Use the locally installed Apple Development identity only for local validation:
 
 ```sh
 SWITCHGPT_SIGNING_IDENTITY="Apple Development: …" \
-  SWITCHGPT_VERSION="0.1.0" \
-  SWITCHGPT_BUILD_NUMBER="1" \
+  SWITCHGPT_VERSION="0.2.0" \
+  SWITCHGPT_BUILD_NUMBER="2" \
   ./Scripts/build-release-app.sh
 
 ./Scripts/verify-release-app.sh --app dist/release/SwitchGPT.app
@@ -40,8 +40,8 @@ After a Developer ID Application certificate and its private key are installed:
 
 ```sh
 SWITCHGPT_SIGNING_IDENTITY="Developer ID Application: …" \
-  SWITCHGPT_VERSION="0.1.0" \
-  SWITCHGPT_BUILD_NUMBER="1" \
+  SWITCHGPT_VERSION="0.2.0" \
+  SWITCHGPT_BUILD_NUMBER="2" \
   ./Scripts/package-release.sh
 ```
 
@@ -62,8 +62,8 @@ Then run the explicit networked release step:
 ```sh
 SWITCHGPT_SIGNING_IDENTITY="Developer ID Application: …" \
   SWITCHGPT_NOTARY_KEYCHAIN_PROFILE="SwitchGPT-notary" \
-  SWITCHGPT_VERSION="0.1.0" \
-  SWITCHGPT_BUILD_NUMBER="1" \
+  SWITCHGPT_VERSION="0.2.0" \
+  SWITCHGPT_BUILD_NUMBER="2" \
   ./Scripts/notarize-release.sh
 ```
 
@@ -76,15 +76,29 @@ Before GitHub Release publication, also run the Swift tests, the 26-scenario
 cross-process matrix, the strict public-tree audit, and the exact-history review
 defined in [PUBLIC_RELEASE.md](PUBLIC_RELEASE.md).
 
-## Public alpha release
+## Stable release update reminders
 
-The public `0.1.0 (1)` arm64 archive is built from the isolated, audited
+Future Dashboard update reminders follow only stable GitHub Releases. Publish
+them with a three-component `vMAJOR.MINOR.PATCH` tag whose numeric value matches
+the app's `CFBundleShortVersionString`. Drafts and prereleases are never eligible
+for an in-app reminder.
+
+The public GitHub Release and its notarized assets must exist before the release
+is exposed to installed apps. The app checks GitHub's public `releases/latest`
+endpoint at most once every 24 hours, compares the stable tag with its bundle
+version, and opens only an HTTPS release URL under
+`github.com/HuipengXu/SwitchGPT/releases/tag/`. It does not download or install
+the archive itself.
+
+## Public stable release
+
+The public `0.2.0 (2)` arm64 archive is built from the isolated, audited
 single-commit release candidate. Before publication, the final archive is
 accepted by Apple Notary Service, stapled, re-verified from a fresh extraction,
 and assessed by Gatekeeper as `Notarized Developer ID`. The post-stapling
 archive and its SHA-256 sidecar are published together as GitHub Release assets;
 `dist/` remains ignored by Git.
 
-The public alpha keeps real account switching experimental and default-off. Each
-switch requires explicit confirmation, and the recovery path must restore the
-original state if any step fails.
+The public stable release keeps real account switching experimental and
+default-off. Each switch requires explicit confirmation, and the recovery path
+must restore the original state if any step fails.

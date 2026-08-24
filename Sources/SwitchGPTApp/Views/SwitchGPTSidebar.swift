@@ -3,11 +3,13 @@ import SwitchGPTAppCore
 
 struct SwitchGPTSidebar: View {
   let store: SwitchGPTAppStore
+  let updateStore: AppUpdateStore
   @Binding var selection: AccountID?
   let topInset: CGFloat
   let onAddOrCancel: () -> Void
 
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.openURL) private var openURL
 
   var body: some View {
     VStack(spacing: 0) {
@@ -68,7 +70,21 @@ struct SwitchGPTSidebar: View {
       }
       .scrollIndicators(.automatic)
 
-      VStack(spacing: 2) {
+      VStack(spacing: 0) {
+        if let availableUpdate = updateStore.availableUpdate {
+          AppUpdateSidebarRow(
+            update: availableUpdate,
+            onOpen: {
+              openURL(availableUpdate.releaseURL)
+            },
+            onLater: updateStore.snoozeAvailableUpdate
+          )
+          .padding(.horizontal, 8)
+          .padding(.vertical, 8)
+        }
+
+        Divider()
+
         HStack(spacing: 8) {
           Image(systemName: "lock.fill")
             .font(.system(size: 10, weight: .medium))
@@ -79,16 +95,83 @@ struct SwitchGPTSidebar: View {
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 10)
         .frame(height: 28)
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
       }
-      .padding(.horizontal, 8)
-      .padding(.top, 8)
       .padding(.bottom, 10)
-      .overlay(alignment: .top) {
-        Divider()
-      }
     }
     .padding(.top, topInset)
     .background(ChatGPTStyle.sidebarBackground(for: colorScheme))
+  }
+}
+
+struct AppUpdateSidebarRow: View {
+  let update: AppUpdateInfo
+  let onOpen: () -> Void
+  let onLater: () -> Void
+
+  @State private var isHovered = false
+
+  var body: some View {
+    ZStack(alignment: .topTrailing) {
+      Button(action: onOpen) {
+        HStack(spacing: 10) {
+          Image(systemName: "arrow.down.circle")
+            .font(.system(size: 21, weight: .medium))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(Color.white.opacity(0.90), ChatGPTStyle.actionBlue)
+            .frame(width: 28, height: 28)
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Update available")
+              .font(.system(size: 13, weight: .medium))
+              .lineLimit(1)
+            Text("SwitchGPT \(update.version.displayValue)")
+              .font(.system(size: 11))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+
+          Spacer(minLength: 6)
+
+          Image(systemName: "chevron.right")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.trailing, 16)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .frame(height: 58)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityHint("Opens the official GitHub release")
+
+      Button(action: onLater) {
+        Image(systemName: "xmark")
+          .font(.system(size: 8, weight: .semibold))
+          .foregroundStyle(.secondary)
+          .frame(width: 22, height: 22)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .help("Remind me later")
+      .accessibilityLabel("Remind me later")
+      .padding(.top, 3)
+      .padding(.trailing, 3)
+    }
+    .background(
+      isHovered
+        ? ChatGPTStyle.actionBlue.opacity(0.13)
+        : ChatGPTStyle.semanticFill(ChatGPTStyle.actionBlue),
+      in: RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)
+        .stroke(ChatGPTStyle.semanticBorder(ChatGPTStyle.actionBlue), lineWidth: 1)
+    }
+    .onHover { isHovered = $0 }
+    .animation(.easeOut(duration: 0.15), value: isHovered)
   }
 }
 

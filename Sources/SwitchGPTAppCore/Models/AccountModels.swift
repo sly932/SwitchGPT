@@ -80,22 +80,114 @@ public struct CreditBalance: Codable, Equatable, Hashable, Sendable {
   }
 }
 
+/// Metadata-only reset-credit detail used by the read-only dashboard.
+///
+/// The app-server also returns an opaque identifier that can be used to redeem a
+/// credit. SwitchGPT intentionally does not model or persist that identifier.
+public struct RateLimitResetCredit: Codable, Equatable, Hashable, Sendable {
+  public let expiresAt: Date?
+
+  public init(expiresAt: Date?) {
+    self.expiresAt = expiresAt
+  }
+}
+
+public struct RateLimitResetCreditExpirationGroup: Equatable, Hashable, Sendable {
+  public let expiresAt: Date?
+  public let count: Int
+
+  public init(expiresAt: Date?, count: Int) {
+    self.expiresAt = expiresAt
+    self.count = max(0, count)
+  }
+}
+
+public struct RateLimitResetCreditsSummary: Codable, Equatable, Hashable, Sendable {
+  public let availableCount: Int
+
+  /// `nil` means the backend returned only the authoritative count. An empty
+  /// array means details were loaded and no available detail rows were returned.
+  public let credits: [RateLimitResetCredit]?
+
+  public var nearestKnownExpiry: Date? {
+    credits?.compactMap(\.expiresAt).min()
+  }
+
+  public var knownDetailCount: Int {
+    credits?.count ?? 0
+  }
+
+  public var missingDetailCount: Int {
+    max(availableCount - knownDetailCount, 0)
+  }
+
+  public var detailsAreComplete: Bool {
+    credits != nil && missingDetailCount == 0
+  }
+
+  public var expirationGroups: [RateLimitResetCreditExpirationGroup] {
+    let grouped = Dictionary(grouping: credits ?? [], by: \.expiresAt)
+    return grouped.map { expiresAt, credits in
+      RateLimitResetCreditExpirationGroup(expiresAt: expiresAt, count: credits.count)
+    }
+    .sorted { lhs, rhs in
+      switch (lhs.expiresAt, rhs.expiresAt) {
+      case (let left?, let right?):
+        return left < right
+      case (_?, nil):
+        return true
+      case (nil, _?):
+        return false
+      case (nil, nil):
+        return false
+      }
+    }
+  }
+
+  public init(availableCount: Int, credits: [RateLimitResetCredit]?) {
+    let normalizedAvailableCount = max(0, availableCount)
+    self.availableCount = normalizedAvailableCount
+    self.credits = credits.map { Array($0.prefix(normalizedAvailableCount)) }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case availableCount
+    case credits
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let normalizedAvailableCount =
+      max(0, try container.decode(Int.self, forKey: .availableCount))
+    availableCount = normalizedAvailableCount
+    let decodedCredits =
+      try container.decodeIfPresent([RateLimitResetCredit].self, forKey: .credits)
+    credits = decodedCredits.map { Array($0.prefix(normalizedAvailableCount)) }
+  }
+}
+
 public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
   public let weekly: UsageWindow
   public let fiveHour: UsageWindow?
   public let credits: CreditBalance?
   public let creditsWereLoaded: Bool
+  public let resetCredits: RateLimitResetCreditsSummary?
+  public let resetCreditsWereLoaded: Bool
 
   public init(
     weekly: UsageWindow,
     fiveHour: UsageWindow? = nil,
     credits: CreditBalance? = nil,
-    creditsWereLoaded: Bool? = nil
+    creditsWereLoaded: Bool? = nil,
+    resetCredits: RateLimitResetCreditsSummary? = nil,
+    resetCreditsWereLoaded: Bool? = nil
   ) {
     self.weekly = weekly
     self.fiveHour = fiveHour
     self.credits = credits
     self.creditsWereLoaded = creditsWereLoaded ?? (credits != nil)
+    self.resetCredits = resetCredits
+    self.resetCreditsWereLoaded = resetCreditsWereLoaded ?? (resetCredits != nil)
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -103,6 +195,8 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
     case fiveHour
     case credits
     case creditsWereLoaded
+    case resetCredits
+    case resetCreditsWereLoaded
   }
 
   public init(from decoder: Decoder) throws {
@@ -112,6 +206,10 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
     credits = try container.decodeIfPresent(CreditBalance.self, forKey: .credits)
     creditsWereLoaded =
       try container.decodeIfPresent(Bool.self, forKey: .creditsWereLoaded) ?? false
+    resetCredits =
+      try container.decodeIfPresent(RateLimitResetCreditsSummary.self, forKey: .resetCredits)
+    resetCreditsWereLoaded =
+      try container.decodeIfPresent(Bool.self, forKey: .resetCreditsWereLoaded) ?? false
   }
 }
 

@@ -4,8 +4,8 @@ set -euo pipefail
 
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd "$script_directory/.." && pwd)"
-version="${SWITCHGPT_VERSION:-0.1.0}"
-build_number="${SWITCHGPT_BUILD_NUMBER:-1}"
+version="${SWITCHGPT_VERSION:-0.2.0}"
+build_number="${SWITCHGPT_BUILD_NUMBER:-2}"
 signing_identity="${SWITCHGPT_SIGNING_IDENTITY:-}"
 release_directory="$repository_root/dist/release"
 app_bundle="$release_directory/SwitchGPT.app"

@@ -34,6 +34,11 @@ struct DashboardDetailView: View {
               onPreviewSwitch: onPreviewSwitch,
               onRemove: onRemove
             )
+
+            if account.usage.resetCreditsWereLoaded {
+              ResetCreditsCardView(summary: account.usage.resetCredits)
+                .id(account.id)
+            }
           } else {
             ContentUnavailableView(
               "No account selected",

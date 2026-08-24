@@ -4,13 +4,16 @@ SwitchGPT 是一款面向 macOS 的轻量工具：把你本机使用的多个 Ch
 
 它适合需要在不同 ChatGPT 账号之间继续 Work/Codex 工作、但不想反复手动查额度和登录的人。账号添加使用官方登录流程；SwitchGPT 不要求你填写 API key，也不是云端账号同步服务。
 
-[下载 macOS 版](https://github.com/HuipengXu/SwitchGPT/releases/download/v0.1.0-alpha.2/SwitchGPT-0.1.0-macOS-arm64.zip) · [查看 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.1.0-alpha.2) · [产品介绍](https://switchgpt.vercel.app)
+[下载 macOS 版](https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.0/SwitchGPT-0.2.0-macOS-arm64.zip) · [查看 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.0) · [产品介绍](https://switchgpt.vercel.app)
 
-> 当前公开版本为 `0.1.0-alpha.2`。它是早期公开测试版；真实的桌面账号切换默认保持实验性质，每次操作都会单独确认。
+> 当前公开版本为 `0.2.0` 正式版。真实的桌面账号切换仍保持实验性质，每次操作都会单独确认。
 
 ## 它能做什么
 
-- 在一个 Dashboard 中查看多个本机账号的邮箱、套餐、Work/Codex 周额度和 credits。
+- 在一个 Dashboard 中查看多个本机账号的邮箱、套餐、Work/Codex 周额度、credits，
+  以及可用的使用限额重置次数和到期时间。
+- 发现新的正式版本时，在 Dashboard 左下角显示低干扰更新提醒，并打开官方 GitHub
+  Release 查看更新。
 - 在菜单栏快速查看额度，并打开账号列表。
 - 点击 **Add account**，通过官方登录页面添加另一个账号；登录和验证码由你自己完成。
 - 选择目标账号后，经过身份、签名和本地状态检查，再由你确认是否让 ChatGPT Desktop 退出并重新打开一次。
@@ -24,7 +27,7 @@ SwitchGPT 是一款面向 macOS 的轻量工具：把你本机使用的多个 Ch
 
   `/Applications/ChatGPT.app`
 
-当前 alpha 版本的添加账号和桌面身份检查依赖这个路径。若 ChatGPT 安装在其他位置，额度查看之外的部分功能可能无法正常工作。
+当前版本的添加账号和桌面身份检查依赖这个路径。若 ChatGPT 安装在其他位置，额度查看之外的部分功能可能无法正常工作。
 
 ## 安装
 
@@ -36,22 +39,22 @@ SwitchGPT 是一款面向 macOS 的轻量工具：把你本机使用的多个 Ch
 set -euo pipefail
 cd ~/Downloads
 
-curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.1.0-alpha.2/SwitchGPT-0.1.0-macOS-arm64.zip
-curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.1.0-alpha.2/SwitchGPT-0.1.0-macOS-arm64.zip.sha256
-shasum -a 256 -c SwitchGPT-0.1.0-macOS-arm64.zip.sha256
+curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.0/SwitchGPT-0.2.0-macOS-arm64.zip
+curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.0/SwitchGPT-0.2.0-macOS-arm64.zip.sha256
+shasum -a 256 -c SwitchGPT-0.2.0-macOS-arm64.zip.sha256
 
 mkdir -p "$HOME/Applications"
-ditto -x -k "SwitchGPT-0.1.0-macOS-arm64.zip" "$HOME/Applications"
+ditto -x -k "SwitchGPT-0.2.0-macOS-arm64.zip" "$HOME/Applications"
 open "$HOME/Applications/SwitchGPT.app"
 ```
 
 ### 图形界面安装（简版）
 
-1. 从 [v0.1.0-alpha.2 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.1.0-alpha.2) 下载 ZIP 和 `.sha256` 文件。
+1. 从 [v0.2.0 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.0) 下载 ZIP 和 `.sha256` 文件。
 2. 在下载目录执行：
 
 ```sh
-shasum -a 256 -c SwitchGPT-0.1.0-macOS-arm64.zip.sha256
+shasum -a 256 -c SwitchGPT-0.2.0-macOS-arm64.zip.sha256
 ```
 
 3. 校验显示 `OK` 后，双击 ZIP，把 `SwitchGPT.app` 拖到“应用程序”。
@@ -60,11 +63,7 @@ shasum -a 256 -c SwitchGPT-0.1.0-macOS-arm64.zip.sha256
 
 这个公开包已经完成 Developer ID 签名和 Apple 公证。macOS 若显示无法验证开发者、文件损坏或签名异常，请先确认下载来源和 SHA-256，不要通过删除隔离属性或关闭 Gatekeeper 来绕过安全检查。
 
-当前 Release 的 SHA-256：
-
-```text
-943d1f42637251040d51bf04949757a3effa1c6e921a5a56a3efdc387cf47f40
-```
+Release 页面同时提供由发布流程在公证和 staple 后生成的 SHA-256 sidecar；请以该文件完成校验。
 
 登录过程中不需要把密码、API key 或验证码输入 SwitchGPT。请不要把本地账号目录、认证文件或截图中的敏感信息发到 Issue、聊天或公开仓库。
 
@@ -72,9 +71,13 @@ shasum -a 256 -c SwitchGPT-0.1.0-macOS-arm64.zip.sha256
 
 ### 查看额度
 
-Dashboard 会显示已添加账号的套餐、邮箱、Work/Codex 使用比例和 credits。点击 **Refresh** 可读取最新状态；菜单栏入口也可以快速查看额度和账号列表。
+Dashboard 会显示已添加账号的套餐、邮箱、Work/Codex 使用比例、credits，以及使用限额重置库存。重置库存默认折叠，仅显示可用总数和最近已知到期时间；展开后按到期时间分组，较长列表通过独立详情窗口查看。点击 **Refresh** 可读取最新状态；菜单栏入口也可以快速查看额度和账号列表。
 
 额度是从各账号当前的官方登录状态读取的本地快照，可能受到网络、登录状态和服务端更新延迟影响。它不是对未来可用额度的保证。
+
+### 应用更新
+
+SwitchGPT 每 24 小时最多检查一次官方 GitHub 仓库的最新正式 Release。只有版本号高于当前应用时，Dashboard 左下角才会出现更新提醒；测试版和草稿不会触发提醒。点击提醒会打开官方 Release 页面，关闭提醒则会将该版本延后 7 天。自动检查失败或离线时不会干扰额度刷新和账号切换。
 
 ### 切换 ChatGPT Desktop 账号
 

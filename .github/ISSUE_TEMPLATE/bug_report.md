@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible problem in the public alpha
+about: Report a reproducible problem in the public macOS release
 title: "bug: "
 labels: bug
 ---

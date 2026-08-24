@@ -19,10 +19,11 @@ struct SwitchGPTApp: App {
     persistence: PreviewStateFileStore.defaultStore,
     initialAccounts: []
   )
+  @State private var updateStore = AppUpdateStore()
 
   var body: some Scene {
     Window("SwitchGPT", id: "dashboard") {
-      DashboardView(store: store)
+      DashboardView(store: store, updateStore: updateStore)
     }
     .defaultSize(width: 820, height: 592)
     .windowStyle(.hiddenTitleBar)

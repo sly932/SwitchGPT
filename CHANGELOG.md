@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 - 2026-08-24
+
+- Show available usage-reset credits in the Dashboard, including the total count,
+  nearest expiration, grouped expiration details, and a bounded expanded list.
+- Add a low-distraction stable-release reminder to the bottom of the Dashboard
+  sidebar, with a 24-hour check cache and seven-day snooze.
+- Restrict update links to exact official SwitchGPT GitHub release URLs and ignore
+  drafts, prereleases, current versions, and older versions.
+- Refresh the public download links and release documentation for the first stable
+  macOS release.
+
 ## 0.1.0-alpha.2 - 2026-08-20
 
 - Improve the status-bar popover layout and keep it open while refreshing usage.

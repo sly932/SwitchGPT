@@ -2,14 +2,14 @@
 
 ## Supported scope
 
-The supported public alpha consists of:
+The supported public stable release consists of:
 
 - the read-only/mock SwiftUI application;
 - the read-only quota decoder and isolated app-server reader;
 - app-managed private account sign-in and storage;
 - the temporary-fixture Safety Core and offline lifecycle validation.
 
-Real ChatGPT Desktop identity switching is default-off and remains outside the supported public alpha until the real gate passes.
+Real ChatGPT Desktop identity switching is default-off and remains experimental. The private real-switch gate passed, but the feature remains outside the supported stable scope and requires explicit confirmation for every operation.
 
 ## Reporting a vulnerability
 

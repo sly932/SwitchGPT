@@ -185,8 +185,146 @@ final class AppCoreTests: XCTestCase {
     XCTAssertEqual(usage.fiveHour?.usedPercent, 12)
     XCTAssertNil(usage.credits)
     XCTAssertTrue(usage.creditsWereLoaded)
+    XCTAssertNil(usage.resetCredits)
+    XCTAssertTrue(usage.resetCreditsWereLoaded)
     XCTAssertEqual(usage.weekly.resetAt.timeIntervalSince1970, 1_787_059_702, accuracy: 0.1)
     XCTAssertEqual(usage.fiveHour?.resetAt.timeIntervalSince1970 ?? 0, 1_787_000_000, accuracy: 0.1)
+  }
+
+  func testRateLimitDecoderPreservesResetCreditCountAndGroupsAvailableDetails() throws {
+    let payload = """
+      {
+        "rateLimits": {
+          "primary": {"usedPercent": 42, "resetsAt": 1787059702}
+        },
+        "rateLimitResetCredits": {
+          "availableCount": 5,
+          "credits": [
+            {
+              "id": "opaque-credit-a",
+              "status": "available",
+              "resetType": "codexRateLimits",
+              "grantedAt": 1780000000,
+              "expiresAt": 1789000000
+            },
+            {
+              "id": "opaque-credit-b",
+              "status": "available",
+              "resetType": "codexRateLimits",
+              "grantedAt": 1780000001,
+              "expiresAt": 1789000000
+            },
+            {
+              "id": "opaque-credit-c",
+              "status": "available",
+              "resetType": "codexRateLimits",
+              "grantedAt": 1780000002,
+              "expiresAt": 1790000000
+            },
+            {
+              "id": "opaque-credit-d",
+              "status": "available",
+              "resetType": "codexRateLimits",
+              "grantedAt": 1780000003,
+              "expiresAt": null
+            },
+            {
+              "id": "opaque-credit-e",
+              "status": "redeemed",
+              "resetType": "codexRateLimits",
+              "grantedAt": 1780000004,
+              "expiresAt": 1788000000
+            }
+          ]
+        }
+      }
+      """.data(using: .utf8)!
+
+    let usage = try CodexRateLimitDecoder.decodeUsage(from: payload)
+    let summary = try XCTUnwrap(usage.resetCredits)
+
+    XCTAssertTrue(usage.resetCreditsWereLoaded)
+    XCTAssertEqual(summary.availableCount, 5)
+    XCTAssertEqual(summary.knownDetailCount, 4)
+    XCTAssertEqual(summary.missingDetailCount, 1)
+    XCTAssertFalse(summary.detailsAreComplete)
+    XCTAssertEqual(summary.nearestKnownExpiry?.timeIntervalSince1970, 1_789_000_000)
+    XCTAssertEqual(
+      summary.expirationGroups,
+      [
+        RateLimitResetCreditExpirationGroup(
+          expiresAt: Date(timeIntervalSince1970: 1_789_000_000),
+          count: 2
+        ),
+        RateLimitResetCreditExpirationGroup(
+          expiresAt: Date(timeIntervalSince1970: 1_790_000_000),
+          count: 1
+        ),
+        RateLimitResetCreditExpirationGroup(expiresAt: nil, count: 1),
+      ]
+    )
+
+    let persisted = try JSONEncoder().encode(usage)
+    let persistedText = try XCTUnwrap(String(data: persisted, encoding: .utf8))
+    XCTAssertFalse(persistedText.contains("opaque-credit"))
+  }
+
+  func testRateLimitDecoderDistinguishesCountOnlyResetCreditsFromZeroDetails() throws {
+    let countOnlyPayload = """
+      {
+        "rateLimits": {
+          "primary": {"usedPercent": 42, "resetsAt": 1787059702}
+        },
+        "rateLimitResetCredits": {
+          "availableCount": 7,
+          "credits": null
+        }
+      }
+      """.data(using: .utf8)!
+    let zeroPayload = """
+      {
+        "rateLimits": {
+          "primary": {"usedPercent": 42, "resetsAt": 1787059702}
+        },
+        "rateLimitResetCredits": {
+          "availableCount": 0,
+          "credits": []
+        }
+      }
+      """.data(using: .utf8)!
+
+    let countOnly = try XCTUnwrap(
+      CodexRateLimitDecoder.decodeUsage(from: countOnlyPayload).resetCredits
+    )
+    let zero = try XCTUnwrap(CodexRateLimitDecoder.decodeUsage(from: zeroPayload).resetCredits)
+
+    XCTAssertEqual(countOnly.availableCount, 7)
+    XCTAssertNil(countOnly.credits)
+    XCTAssertEqual(countOnly.missingDetailCount, 7)
+    XCTAssertFalse(countOnly.detailsAreComplete)
+    XCTAssertEqual(zero.availableCount, 0)
+    XCTAssertEqual(zero.credits, [])
+    XCTAssertTrue(zero.detailsAreComplete)
+  }
+
+  func testMalformedOptionalResetCreditsDoNotDiscardValidUsage() throws {
+    let payload = """
+      {
+        "rateLimits": {
+          "primary": {"usedPercent": 42, "resetsAt": 1787059702}
+        },
+        "rateLimitResetCredits": {
+          "availableCount": "unknown",
+          "credits": []
+        }
+      }
+      """.data(using: .utf8)!
+
+    let usage = try CodexRateLimitDecoder.decodeUsage(from: payload)
+
+    XCTAssertEqual(usage.weekly.usedPercent, 42)
+    XCTAssertNil(usage.resetCredits)
+    XCTAssertTrue(usage.resetCreditsWereLoaded)
   }
 
   func testRateLimitDecoderPreservesCreditsPointsAndConvertsToUSD() throws {
@@ -255,7 +393,7 @@ final class AppCoreTests: XCTestCase {
     XCTAssertNil(object["balance"])
   }
 
-  func testAccountUsageDecodesLegacyStateWithoutCredits() throws {
+  func testAccountUsageDecodesLegacyStateWithoutCreditsOrResetCredits() throws {
     let original = AccountUsage(
       weekly: UsageWindow(usedPercent: 37, resetAt: Date(timeIntervalSince1970: 1_787_059_702))
     )
@@ -263,6 +401,8 @@ final class AppCoreTests: XCTestCase {
     var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     object.removeValue(forKey: "credits")
     object.removeValue(forKey: "creditsWereLoaded")
+    object.removeValue(forKey: "resetCredits")
+    object.removeValue(forKey: "resetCreditsWereLoaded")
     let legacyData = try JSONSerialization.data(withJSONObject: object)
 
     let decoded = try JSONDecoder().decode(AccountUsage.self, from: legacyData)
@@ -270,6 +410,8 @@ final class AppCoreTests: XCTestCase {
     XCTAssertEqual(decoded.weekly, original.weekly)
     XCTAssertNil(decoded.credits)
     XCTAssertFalse(decoded.creditsWereLoaded)
+    XCTAssertNil(decoded.resetCredits)
+    XCTAssertFalse(decoded.resetCreditsWereLoaded)
   }
 
   func testRateLimitDecoderRejectsMissingPrimaryWindow() {
@@ -489,10 +631,13 @@ final class AppCoreTests: XCTestCase {
 
     XCTAssertEqual(store.accounts.count, 1)
     XCTAssertEqual(store.currentAccount?.accountLabel, "current@example.com")
-    XCTAssertEqual(store.currentAccount?.source, .codexHome(
-      path: FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".codex").path
-    ))
+    XCTAssertEqual(
+      store.currentAccount?.source,
+      .codexHome(
+        path: FileManager.default.homeDirectoryForCurrentUser
+          .appendingPathComponent(".codex").path
+      )
+    )
   }
 
   @MainActor

@@ -47,6 +47,6 @@ For this authorized release:
 
 ## Release identity
 
-The public alpha uses the existing `SwitchGPT` name, bundle identifiers, helper
+The public release uses the existing `SwitchGPT` name, bundle identifiers, helper
 identifiers, website metadata, and icon. A future release may revisit the brand
 independently; that is outside this publication step.

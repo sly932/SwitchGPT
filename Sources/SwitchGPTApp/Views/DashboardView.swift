@@ -3,6 +3,7 @@ import SwitchGPTAppCore
 
 struct DashboardView: View {
   let store: SwitchGPTAppStore
+  let updateStore: AppUpdateStore
 
   @State private var pendingSwitch: AccountRecord?
   @State private var pendingRealSwitch: RealSwitchPlan?
@@ -49,6 +50,7 @@ struct DashboardView: View {
     HStack(spacing: 0) {
       SwitchGPTSidebar(
         store: store,
+        updateStore: updateStore,
         selection: $selectedAccountID,
         topInset: windowTopInset,
         onAddOrCancel: addOrCancelAccountSignIn
@@ -83,6 +85,9 @@ struct DashboardView: View {
       } else if !store.accounts.isEmpty {
         await store.refreshIfStale(maxAge: UsageRefreshPolicy.dashboardVisibleMaxAge)
       }
+    }
+    .task {
+      await updateStore.checkIfStale()
     }
     .onChange(of: store.currentAccountID) { _, newValue in
       selectedAccountID = newValue
