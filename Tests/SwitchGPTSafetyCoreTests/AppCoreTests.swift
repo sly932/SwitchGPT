@@ -167,7 +167,7 @@ final class AppCoreTests: XCTestCase {
     XCTAssertEqual(store.currentAccountID, addedID)
   }
 
-  func testRateLimitDecoderSupportsSecondaryWindow() throws {
+  func testRateLimitDecoderFallsBackToLegacyWindowOrderWithoutDurations() throws {
     let payload = """
       {
         "rateLimitsByLimitId": {
@@ -189,6 +189,34 @@ final class AppCoreTests: XCTestCase {
     XCTAssertTrue(usage.resetCreditsWereLoaded)
     XCTAssertEqual(usage.weekly.resetAt.timeIntervalSince1970, 1_787_059_702, accuracy: 0.1)
     XCTAssertEqual(usage.fiveHour?.resetAt.timeIntervalSince1970 ?? 0, 1_787_000_000, accuracy: 0.1)
+  }
+
+  func testRateLimitDecoderUsesDurationWhenPrimaryIsFiveHourWindow() throws {
+    let payload = """
+      {
+        "rateLimitsByLimitId": {
+          "codex": {
+            "primary": {
+              "usedPercent": 1,
+              "resetsAt": 1787000000,
+              "windowDurationMins": 300
+            },
+            "secondary": {
+              "usedPercent": 0,
+              "resetsAt": 1787059702,
+              "windowDurationMins": 10080
+            }
+          }
+        }
+      }
+      """.data(using: .utf8)!
+
+    let usage = try CodexRateLimitDecoder.decodeUsage(from: payload)
+
+    XCTAssertEqual(usage.fiveHour?.remainingPercent, 99)
+    XCTAssertEqual(usage.weekly.remainingPercent, 100)
+    XCTAssertEqual(usage.fiveHour?.resetAt.timeIntervalSince1970 ?? 0, 1_787_000_000, accuracy: 0.1)
+    XCTAssertEqual(usage.weekly.resetAt.timeIntervalSince1970, 1_787_059_702, accuracy: 0.1)
   }
 
   func testRateLimitDecoderPreservesResetCreditCountAndGroupsAvailableDetails() throws {

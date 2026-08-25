@@ -12,13 +12,9 @@ public enum CodexRateLimitDecoder {
       throw QuotaReadingError.missingRateLimit
     }
 
-    let weekly = try decodeWindow(primary)
-    let fiveHour: UsageWindow?
-    if let secondary = limit["secondary"] as? [String: Any] {
-      fiveHour = try decodeWindow(secondary)
-    } else {
-      fiveHour = nil
-    }
+    let primaryWindow = try decodeWindow(primary)
+    let secondaryWindow = try (limit["secondary"] as? [String: Any]).map(decodeWindow)
+    let (weekly, fiveHour) = classifyWindows(primary: primaryWindow, secondary: secondaryWindow)
 
     return AccountUsage(
       weekly: weekly,
@@ -42,7 +38,12 @@ public enum CodexRateLimitDecoder {
     return root
   }
 
-  private static func decodeWindow(_ object: [String: Any]) throws -> UsageWindow {
+  private struct DecodedWindow {
+    let usage: UsageWindow
+    let durationMinutes: Int?
+  }
+
+  private static func decodeWindow(_ object: [String: Any]) throws -> DecodedWindow {
     guard let used = number(from: object["usedPercent"]),
       let reset = number(from: object["resetsAt"])
     else {
@@ -50,10 +51,33 @@ public enum CodexRateLimitDecoder {
     }
 
     let resetSeconds = reset > 10_000_000_000 ? reset / 1_000 : reset
-    return UsageWindow(
-      usedPercent: Int(used.rounded()),
-      resetAt: Date(timeIntervalSince1970: resetSeconds)
+    return DecodedWindow(
+      usage: UsageWindow(
+        usedPercent: Int(used.rounded()),
+        resetAt: Date(timeIntervalSince1970: resetSeconds)
+      ),
+      durationMinutes: nonnegativeInteger(from: object["windowDurationMins"])
     )
+  }
+
+  private static func classifyWindows(
+    primary: DecodedWindow,
+    secondary: DecodedWindow?
+  ) -> (weekly: UsageWindow, fiveHour: UsageWindow?) {
+    let fiveHourMinutes = 5 * 60
+    let weeklyMinutes = 7 * 24 * 60
+
+    guard let secondary else {
+      return (primary.usage, nil)
+    }
+
+    if primary.durationMinutes == fiveHourMinutes
+      || secondary.durationMinutes == weeklyMinutes
+    {
+      return (secondary.usage, primary.usage)
+    }
+
+    return (primary.usage, secondary.usage)
   }
 
   private static func number(from value: Any?) -> Double? {

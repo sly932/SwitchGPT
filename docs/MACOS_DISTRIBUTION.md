@@ -24,8 +24,8 @@ Use the locally installed Apple Development identity only for local validation:
 
 ```sh
 SWITCHGPT_SIGNING_IDENTITY="Apple Development: …" \
-  SWITCHGPT_VERSION="0.2.0" \
-  SWITCHGPT_BUILD_NUMBER="2" \
+  SWITCHGPT_VERSION="0.2.1" \
+  SWITCHGPT_BUILD_NUMBER="3" \
   ./Scripts/build-release-app.sh
 
 ./Scripts/verify-release-app.sh --app dist/release/SwitchGPT.app
@@ -40,8 +40,8 @@ After a Developer ID Application certificate and its private key are installed:
 
 ```sh
 SWITCHGPT_SIGNING_IDENTITY="Developer ID Application: …" \
-  SWITCHGPT_VERSION="0.2.0" \
-  SWITCHGPT_BUILD_NUMBER="2" \
+  SWITCHGPT_VERSION="0.2.1" \
+  SWITCHGPT_BUILD_NUMBER="3" \
   ./Scripts/package-release.sh
 ```
 
@@ -62,8 +62,8 @@ Then run the explicit networked release step:
 ```sh
 SWITCHGPT_SIGNING_IDENTITY="Developer ID Application: …" \
   SWITCHGPT_NOTARY_KEYCHAIN_PROFILE="SwitchGPT-notary" \
-  SWITCHGPT_VERSION="0.2.0" \
-  SWITCHGPT_BUILD_NUMBER="2" \
+  SWITCHGPT_VERSION="0.2.1" \
+  SWITCHGPT_BUILD_NUMBER="3" \
   ./Scripts/notarize-release.sh
 ```
 
@@ -92,7 +92,7 @@ the archive itself.
 
 ## Public stable release
 
-The public `0.2.0 (2)` arm64 archive is built from the isolated, audited
+The public `0.2.1 (3)` arm64 archive is built from the isolated, audited
 single-commit release candidate. Before publication, the final archive is
 accepted by Apple Notary Service, stapled, re-verified from a fresh extraction,
 and assessed by Gatekeeper as `Notarized Developer ID`. The post-stapling

@@ -203,6 +203,58 @@ final class AppUpdateTests: XCTestCase {
     XCTAssertEqual(callCount, 1)
   }
 
+  @MainActor
+  func testManualUpdateCheckOverridesSnoozeAndReportsUpdate() async throws {
+    let update = try makeUpdate(version: "0.2.0")
+    let fetcher = StubAppReleaseFetcher(update: update)
+    let (defaults, suiteName) = makeDefaults()
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = AppUpdateStore(
+      releaseFetcher: fetcher,
+      currentVersion: try XCTUnwrap(AppReleaseVersion(rawValue: "0.1.0")),
+      userDefaults: defaults
+    )
+
+    await store.checkNow()
+    store.snoozeAvailableUpdate()
+    await store.checkManually()
+
+    XCTAssertEqual(store.availableUpdate, update)
+    XCTAssertEqual(store.manualCheckNotice?.result, .updateAvailable(update))
+  }
+
+  @MainActor
+  func testManualUpdateCheckReportsUpToDate() async throws {
+    let fetcher = StubAppReleaseFetcher(update: try makeUpdate(version: "0.2.0"))
+    let (defaults, suiteName) = makeDefaults()
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = AppUpdateStore(
+      releaseFetcher: fetcher,
+      currentVersion: try XCTUnwrap(AppReleaseVersion(rawValue: "0.2.0")),
+      userDefaults: defaults
+    )
+
+    await store.checkManually()
+
+    XCTAssertEqual(store.manualCheckNotice?.result, .upToDate)
+  }
+
+  @MainActor
+  func testManualUpdateCheckReportsFailure() async throws {
+    let fetcher = StubAppReleaseFetcher(update: nil, shouldFail: true)
+    let (defaults, suiteName) = makeDefaults()
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = AppUpdateStore(
+      releaseFetcher: fetcher,
+      currentVersion: try XCTUnwrap(AppReleaseVersion(rawValue: "0.2.0")),
+      userDefaults: defaults
+    )
+
+    await store.checkManually()
+
+    XCTAssertEqual(store.manualCheckNotice?.result, .failed)
+  }
+
   private func releasePayload(
     tag: String,
     url: String,
@@ -237,14 +289,19 @@ final class AppUpdateTests: XCTestCase {
 
 private actor StubAppReleaseFetcher: AppReleaseFetching {
   private var update: AppUpdateInfo?
+  private let shouldFail: Bool
   private(set) var callCount = 0
 
-  init(update: AppUpdateInfo?) {
+  init(update: AppUpdateInfo?, shouldFail: Bool = false) {
     self.update = update
+    self.shouldFail = shouldFail
   }
 
   func fetchLatestRelease() async throws -> AppUpdateInfo? {
     callCount += 1
+    if shouldFail {
+      throw StubAppReleaseError.failed
+    }
     return update
   }
 
@@ -255,4 +312,8 @@ private actor StubAppReleaseFetcher: AppReleaseFetching {
   func currentCallCount() -> Int {
     callCount
   }
+}
+
+private enum StubAppReleaseError: Error {
+  case failed
 }

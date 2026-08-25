@@ -9,6 +9,7 @@ public final class AppUpdateStore {
 
   public private(set) var availableUpdate: AppUpdateInfo?
   public private(set) var isChecking = false
+  public private(set) var manualCheckNotice: AppUpdateCheckNotice?
 
   private let releaseFetcher: any AppReleaseFetching
   private let currentVersion: AppReleaseVersion
@@ -49,7 +50,26 @@ public final class AppUpdateStore {
   }
 
   public func checkNow() async {
-    guard !isChecking else { return }
+    _ = await performCheck()
+  }
+
+  public func checkManually() async {
+    guard let result = await performCheck() else { return }
+
+    if case .updateAvailable(let update) = result {
+      userDefaults.removeObject(forKey: snoozedVersionKey)
+      userDefaults.removeObject(forKey: snoozedUntilKey)
+      availableUpdate = update
+    }
+    manualCheckNotice = AppUpdateCheckNotice(result: result)
+  }
+
+  public func dismissManualCheckNotice() {
+    manualCheckNotice = nil
+  }
+
+  private func performCheck() async -> AppUpdateCheckResult? {
+    guard !isChecking else { return nil }
     isChecking = true
     defer { isChecking = false }
 
@@ -59,9 +79,14 @@ public final class AppUpdateStore {
       userDefaults.set(currentDate, forKey: lastCheckedAtKey)
       cache(release)
       availableUpdate = visibleUpdate(from: release, at: currentDate)
+      if let release, release.version > currentVersion {
+        return .updateAvailable(release)
+      }
+      return .upToDate
     } catch {
       // Automatic update checks are intentionally silent. A temporary network
       // or GitHub failure must not interfere with account or quota workflows.
+      return .failed
     }
   }
 

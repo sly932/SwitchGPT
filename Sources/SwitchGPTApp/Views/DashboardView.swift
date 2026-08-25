@@ -12,6 +12,8 @@ struct DashboardView: View {
   @State private var accountSignInTask: Task<Void, Never>?
   @State private var windowTopInset: CGFloat = 0
 
+  @Environment(\.openURL) private var openURL
+
   private var selectedAccount: AccountRecord? {
     if let selectedAccountID,
       let account = store.accounts.first(where: { $0.id == selectedAccountID })
@@ -95,6 +97,25 @@ struct DashboardView: View {
     .onDisappear {
       accountSignInTask?.cancel()
     }
+    .alert(updateCheckAlertTitle, isPresented: updateCheckAlertIsPresented) {
+      if let notice = updateStore.manualCheckNotice,
+        case .updateAvailable(let update) = notice.result
+      {
+        Button("View Release") {
+          openURL(update.releaseURL)
+          updateStore.dismissManualCheckNotice()
+        }
+        Button("Cancel", role: .cancel) {
+          updateStore.dismissManualCheckNotice()
+        }
+      } else {
+        Button("OK") {
+          updateStore.dismissManualCheckNotice()
+        }
+      }
+    } message: {
+      Text(updateCheckAlertMessage)
+    }
     .sheet(item: $pendingSwitch) { target in
       SwitchConfirmationSheet(
         current: store.currentAccount,
@@ -149,6 +170,43 @@ struct DashboardView: View {
         "Remove this account from SwitchGPT? Its saved local profile will be removed. "
           + "This does not delete the OpenAI account."
       )
+    }
+  }
+
+  private var updateCheckAlertIsPresented: Binding<Bool> {
+    Binding(
+      get: { updateStore.manualCheckNotice != nil },
+      set: { isPresented in
+        if !isPresented {
+          updateStore.dismissManualCheckNotice()
+        }
+      }
+    )
+  }
+
+  private var updateCheckAlertTitle: String {
+    switch updateStore.manualCheckNotice?.result {
+    case .updateAvailable:
+      "Update Available"
+    case .upToDate:
+      "SwitchGPT Is Up to Date"
+    case .failed:
+      "Unable to Check for Updates"
+    case nil:
+      ""
+    }
+  }
+
+  private var updateCheckAlertMessage: String {
+    switch updateStore.manualCheckNotice?.result {
+    case .updateAvailable(let update):
+      "SwitchGPT \(update.version.displayValue) is available."
+    case .upToDate:
+      "You’re using the latest version of SwitchGPT."
+    case .failed:
+      "Check your internet connection and try again."
+    case nil:
+      ""
     }
   }
 

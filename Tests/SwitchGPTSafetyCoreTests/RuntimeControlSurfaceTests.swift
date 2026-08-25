@@ -195,6 +195,27 @@ final class RuntimeControlSurfaceTests: XCTestCase {
     XCTAssertTrue(confirmation.contains("SwitchGPT verifies the target account"))
   }
 
+  func testManualUpdateCheckIsAvailableFromApplicationMenu() throws {
+    let commands = try String(
+      contentsOf: repositoryRoot.appendingPathComponent(
+        "Sources/SwitchGPTApp/App/SwitchGPTCommands.swift"
+      ),
+      encoding: .utf8
+    )
+    let dashboard = try String(
+      contentsOf: repositoryRoot.appendingPathComponent(
+        "Sources/SwitchGPTApp/Views/DashboardView.swift"
+      ),
+      encoding: .utf8
+    )
+
+    XCTAssertTrue(commands.contains("CommandGroup(after: .appInfo)"))
+    XCTAssertTrue(commands.contains("Check for Updates…"))
+    XCTAssertTrue(commands.contains("updateStore.checkManually()"))
+    XCTAssertTrue(dashboard.contains("SwitchGPT Is Up to Date"))
+    XCTAssertTrue(dashboard.contains("Unable to Check for Updates"))
+  }
+
   func testAccountRemovalIsVisibleAndConfirmed() throws {
     let card = try String(
       contentsOf: repositoryRoot.appendingPathComponent(

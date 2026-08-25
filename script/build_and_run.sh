@@ -6,8 +6,8 @@ mode="${1:-run}"
 app_name="SwitchGPT"
 bundle_id="com.kunpeng.SwitchGPT"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-dist_dir="$repository_root/dist"
-app_bundle="$dist_dir/$app_name.app"
+dev_bundle_directory="$repository_root/.build/dev-app"
+app_bundle="$dev_bundle_directory/$app_name.app"
 app_contents="$app_bundle/Contents"
 app_macos="$app_contents/MacOS"
 app_binary="$app_macos/$app_name"
@@ -18,6 +18,11 @@ recovery_helper="$helper_directory/SwitchGPTRecoverySupervisor"
 info_plist="$app_contents/Info.plist"
 
 cd "$repository_root"
+
+# Keep generated development bundles out of Spotlight application results.
+# Public release artifacts continue to use dist/release via the release scripts.
+mkdir -p "$dev_bundle_directory"
+touch "$dev_bundle_directory/.metadata_never_index"
 
 # Only stop this exact app process. ChatGPT and all lifecycle validation hosts
 # are deliberately outside this run-loop's process scope.

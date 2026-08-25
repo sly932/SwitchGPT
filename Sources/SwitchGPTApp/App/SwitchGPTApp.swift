@@ -28,7 +28,7 @@ struct SwitchGPTApp: App {
     .defaultSize(width: 820, height: 592)
     .windowStyle(.hiddenTitleBar)
     .commands {
-      SwitchGPTCommands(store: store)
+      SwitchGPTCommands(store: store, updateStore: updateStore)
     }
 
     MenuBarExtra {

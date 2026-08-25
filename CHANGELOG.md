@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 - 2026-08-25
+
+- Fix reversed 5-hour and weekly quota values by identifying each server window
+  from its duration instead of assuming a fixed primary/secondary order.
+- Add a native `Check for Updates…` command to the macOS application menu with
+  explicit up-to-date, update-available, and failure results.
+- Keep legacy quota responses compatible when window-duration metadata is absent.
+
 ## 0.2.0 - 2026-08-24
 
 - Show available usage-reset credits in the Dashboard, including the total count,
@@ -43,4 +51,4 @@
 - Record the product owner's private permission for the current product name and icon without publishing private correspondence.
 
 Real ChatGPT Desktop switching remains default-off, experimental, and requires
-explicit confirmation for every operation in this alpha.
+explicit confirmation for every operation.

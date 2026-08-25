@@ -66,3 +66,18 @@ public struct AppUpdateInfo: Equatable, Hashable, Sendable {
       && AppReleaseVersion(rawValue: components[4]) == version
   }
 }
+
+public enum AppUpdateCheckResult: Equatable, Sendable {
+  case updateAvailable(AppUpdateInfo)
+  case upToDate
+  case failed
+}
+
+public struct AppUpdateCheckNotice: Identifiable, Equatable, Sendable {
+  public let id = UUID()
+  public let result: AppUpdateCheckResult
+
+  init(result: AppUpdateCheckResult) {
+    self.result = result
+  }
+}
