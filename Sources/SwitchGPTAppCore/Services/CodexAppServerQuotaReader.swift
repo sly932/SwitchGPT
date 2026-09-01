@@ -25,39 +25,62 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
       return [:]
     }
 
-    return try await withThrowingTaskGroup(of: (AccountID, AccountQuotaSnapshot).self) { group in
+    let batchResult = await withTaskGroup(
+      of: (AccountID, Result<AccountQuotaSnapshot, QuotaReadingError>).self,
+      returning: Result<[AccountID: AccountQuotaSnapshot], QuotaReadingError>.self
+    ) { group in
       for (accountID, path) in realAccounts {
         group.addTask {
-          let snapshot = try await Self.readSnapshot(
-            from: path,
-            binaryURL: codexBinaryURL,
-            timeout: timeout
-          )
-          guard let account = accounts.first(where: { $0.id == accountID }),
-            let expectedIdentityHash = account.identityHash
-          else {
-            throw QuotaReadingError.identityNotPinned
-          }
-          guard snapshot.identityHash == expectedIdentityHash else {
-            throw QuotaReadingError.identityMismatch
-          }
-          return (
-            accountID,
-            AccountQuotaSnapshot(
-              email: snapshot.email,
-              planName: snapshot.planName,
-              usage: snapshot.usage
+          do {
+            let snapshot = try await Self.readSnapshot(
+              from: path,
+              binaryURL: codexBinaryURL,
+              timeout: timeout
             )
-          )
+            guard let account = accounts.first(where: { $0.id == accountID }),
+              let expectedIdentityHash = account.identityHash
+            else {
+              return (accountID, .failure(.identityNotPinned))
+            }
+            guard snapshot.identityHash == expectedIdentityHash else {
+              return (accountID, .failure(.identityMismatch))
+            }
+            return (
+              accountID,
+              .success(
+                AccountQuotaSnapshot(
+                  email: snapshot.email,
+                  planName: snapshot.planName,
+                  usage: snapshot.usage
+                )
+              )
+            )
+          } catch let error as QuotaReadingError {
+            return (accountID, .failure(error))
+          } catch {
+            return (accountID, .failure(.invalidProtocolResponse))
+          }
         }
       }
 
       var result: [AccountID: AccountQuotaSnapshot] = [:]
-      for try await (accountID, snapshot) in group {
-        result[accountID] = snapshot
+      var firstFailure: QuotaReadingError?
+      for await (accountID, attempt) in group {
+        switch attempt {
+        case .success(let snapshot):
+          result[accountID] = snapshot
+        case .failure(let error):
+          if firstFailure == nil {
+            firstFailure = error
+          }
+        }
       }
-      return result
+      if result.isEmpty, let firstFailure {
+        return .failure(firstFailure)
+      }
+      return .success(result)
     }
+    return try batchResult.get()
   }
 
   public func probe(codexHomePath: String) async throws -> ReadOnlyAccountProbe {

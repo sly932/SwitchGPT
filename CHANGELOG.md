@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2 - 2026-09-02
+
+- Isolate quota refresh failures per account so one expired or unavailable login
+  no longer discards fresh usage from every healthy account.
+- Keep the previous usage for accounts that fail to refresh, mark those accounts
+  in the sidebar, and report a clear partial-update state.
+- Leave the global refresh timestamp unchanged after a partial result so the app
+  does not treat stale account data as a complete refresh.
+
 ## 0.2.1 - 2026-08-25
 
 - Fix reversed 5-hour and weekly quota values by identifying each server window

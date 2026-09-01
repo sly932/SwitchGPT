@@ -7,6 +7,7 @@ public enum SwitchGPTActivity: Equatable, Sendable {
   case simulating(targetName: String)
   case switching(targetName: String)
   case success(message: String)
+  case partial(message: String)
   case failure(message: String)
 
   public var message: String {
@@ -19,7 +20,7 @@ public enum SwitchGPTActivity: Equatable, Sendable {
       return "Simulating switch to " + targetName + "…"
     case .switching(let targetName):
       return "Switching ChatGPT to " + targetName + "…"
-    case .success(let message), .failure(let message):
+    case .success(let message), .partial(let message), .failure(let message):
       return message
     }
   }
@@ -28,7 +29,7 @@ public enum SwitchGPTActivity: Equatable, Sendable {
     switch self {
     case .refreshing, .simulating, .switching:
       return true
-    case .ready, .success, .failure:
+    case .ready, .success, .partial, .failure:
       return false
     }
   }
@@ -44,7 +45,7 @@ public enum SwitchGPTActivity: Equatable, Sendable {
     switch self {
     case .simulating, .switching:
       return true
-    case .ready, .refreshing, .success, .failure:
+    case .ready, .refreshing, .success, .partial, .failure:
       return false
     }
   }
@@ -74,6 +75,7 @@ public final class SwitchGPTAppStore {
   public private(set) var activity: SwitchGPTActivity = .ready
   public private(set) var accountOnboardingActivity: AccountOnboardingActivity = .idle
   public private(set) var lastRefreshedAt: Date?
+  public private(set) var quotaRefreshFailedAccountIDs: Set<AccountID> = []
   public private(set) var lastPersistenceError: String?
 
   private let quotaReader: any QuotaReading
@@ -459,41 +461,68 @@ public final class SwitchGPTAppStore {
     if reportsActivity {
       activity = .refreshing
     }
+    let snapshotsByAccount: [AccountID: AccountQuotaSnapshot]
     do {
-      let snapshotsByAccount = try await quotaReader.fetchSnapshots(for: accounts)
-      accounts = accounts.map { account in
-        var updated = account
-        if let snapshot = snapshotsByAccount[account.id] {
-          updated = AccountRecord(
-            id: account.id,
-            displayName: account.displayName,
-            email: snapshot.email ?? account.email,
-            detail: account.detail,
-            planName: snapshot.planName,
-            symbolName: account.symbolName,
-            accent: account.accent,
-            usage: snapshot.usage,
-            source: account.source,
-            identityHash: account.identityHash
-          )
-        }
-        return updated
-      }
-      lastRefreshedAt = Date()
-      if persistState() {
-        if reportsActivity {
-          activity = .success(message: "Usage refreshed")
-        }
-      } else if !reportsActivity {
-        activity = previousActivity
-      }
+      snapshotsByAccount = try await quotaReader.fetchSnapshots(for: accounts)
     } catch {
+      quotaRefreshFailedAccountIDs = Set(accounts.map(\.id))
       if reportsActivity {
         activity = .failure(message: "Could not refresh usage")
       } else {
         activity = previousActivity
-        NSLog("[SwitchGPT/quota] background refresh failed: %@", String(describing: error))
+        NSLog("[SwitchGPT/quota] background refresh failed for all configured accounts")
       }
+      return
+    }
+    let failedAccountIDs = Set(accounts.map(\.id)).subtracting(snapshotsByAccount.keys)
+    quotaRefreshFailedAccountIDs = failedAccountIDs
+
+    guard !snapshotsByAccount.isEmpty else {
+      if reportsActivity {
+        activity = .failure(message: "Could not refresh usage")
+      } else {
+        activity = previousActivity
+        NSLog("[SwitchGPT/quota] background refresh failed for all configured accounts")
+      }
+      return
+    }
+
+    accounts = accounts.map { account in
+      var updated = account
+      if let snapshot = snapshotsByAccount[account.id] {
+        updated = AccountRecord(
+          id: account.id,
+          displayName: account.displayName,
+          email: snapshot.email ?? account.email,
+          detail: account.detail,
+          planName: snapshot.planName,
+          symbolName: account.symbolName,
+          accent: account.accent,
+          usage: snapshot.usage,
+          source: account.source,
+          identityHash: account.identityHash
+        )
+      }
+      return updated
+    }
+    if failedAccountIDs.isEmpty {
+      lastRefreshedAt = Date()
+    }
+    if persistState() {
+      if reportsActivity {
+        if failedAccountIDs.isEmpty {
+          activity = .success(message: "Usage refreshed")
+        } else {
+          let failedCount = failedAccountIDs.count
+          let accountWord = failedCount == 1 ? "account" : "accounts"
+          activity = .partial(
+            message: "Updated \(snapshotsByAccount.count) of \(accounts.count) accounts. "
+              + "\(failedCount) \(accountWord) kept previous usage."
+          )
+        }
+      }
+    } else if !reportsActivity {
+      activity = previousActivity
     }
   }
 
@@ -511,6 +540,7 @@ public final class SwitchGPTAppStore {
       guard let snapshot = snapshots[accountID],
         let index = accounts.firstIndex(where: { $0.id == accountID })
       else {
+        quotaRefreshFailedAccountIDs.insert(accountID)
         activity = .failure(message: "Could not refresh the selected account")
         return false
       }
@@ -530,11 +560,13 @@ public final class SwitchGPTAppStore {
       )
       lastRefreshedAt = Date()
       if persistState() {
+        quotaRefreshFailedAccountIDs.remove(accountID)
         activity = .success(message: "Selected account refreshed")
         return true
       }
       return false
     } catch {
+      quotaRefreshFailedAccountIDs.insert(accountID)
       activity = .failure(message: "Could not refresh the selected account")
       return false
     }

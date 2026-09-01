@@ -59,7 +59,8 @@ struct SwitchGPTSidebar: View {
               AccountSidebarRow(
                 account: account,
                 isCurrent: store.currentAccountID.map { $0 == account.id } ?? false,
-                isSelected: selection == account.id
+                isSelected: selection == account.id,
+                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
               )
             }
             .buttonStyle(.plain)
@@ -249,6 +250,7 @@ private struct AccountSidebarRow: View {
   let account: AccountRecord
   let isCurrent: Bool
   let isSelected: Bool
+  let refreshFailed: Bool
 
   @State private var isHovered = false
 
@@ -272,6 +274,14 @@ private struct AccountSidebarRow: View {
       }
 
       Spacer(minLength: 4)
+
+      if refreshFailed {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(ChatGPTStyle.warningOrange)
+          .help("Refresh failed; showing previous usage")
+          .accessibilityLabel("Refresh failed; showing previous usage")
+      }
 
       if isCurrent {
         Image(systemName: "checkmark")

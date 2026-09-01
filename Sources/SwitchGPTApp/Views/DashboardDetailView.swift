@@ -133,6 +133,8 @@ struct DashboardDetailView: View {
       return "Refreshing"
     case .updated:
       return "Updated"
+    case .partial:
+      return "Partially updated"
     case .failed:
       return "Refresh failed"
     }
@@ -154,6 +156,8 @@ struct DashboardDetailView: View {
       switch store.activity {
       case .success:
         refreshFeedback = .updated
+      case .partial:
+        refreshFeedback = .partial
       case .failure:
         refreshFeedback = .failed
       default:
@@ -166,6 +170,7 @@ struct DashboardDetailView: View {
     case idle
     case refreshing
     case updated
+    case partial
     case failed
 
     var symbolName: String {
@@ -176,6 +181,8 @@ struct DashboardDetailView: View {
         return "arrow.triangle.2.circlepath"
       case .updated:
         return "checkmark.circle.fill"
+      case .partial:
+        return "exclamationmark.triangle.fill"
       case .failed:
         return "exclamationmark.circle.fill"
       }
@@ -189,6 +196,8 @@ struct DashboardDetailView: View {
         return ChatGPTStyle.actionBlue
       case .updated:
         return ChatGPTStyle.successGreen
+      case .partial:
+        return ChatGPTStyle.warningOrange
       case .failed:
         return ChatGPTStyle.dangerRed
       }
@@ -274,6 +283,8 @@ struct DashboardDetailView: View {
       return "arrow.triangle.2.circlepath"
     case .success:
       return "checkmark.circle.fill"
+    case .partial:
+      return "exclamationmark.triangle.fill"
     case .failure:
       return "exclamationmark.triangle.fill"
     }
@@ -285,6 +296,8 @@ struct DashboardDetailView: View {
       return ChatGPTStyle.successGreen
     case .refreshing, .simulating, .switching:
       return ChatGPTStyle.actionBlue
+    case .partial:
+      return ChatGPTStyle.warningOrange
     case .failure:
       return ChatGPTStyle.dangerRed
     }

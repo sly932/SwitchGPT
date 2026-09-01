@@ -7,7 +7,7 @@ repository_root="$(cd "$script_directory/.." && pwd)"
 export_root="$repository_root/.build/public-export"
 candidate_root="$repository_root/.build/public-release-repo"
 expected_candidate_root="$repository_root/.build/public-release-repo"
-version="${SWITCHGPT_VERSION:-0.2.1}"
+version="${SWITCHGPT_VERSION:-0.2.2}"
 
 if [[ "$candidate_root" != "$expected_candidate_root" ]]; then
   echo "refusing unexpected public candidate path: $candidate_root" >&2

@@ -78,6 +78,97 @@ final class AppCoreTests: XCTestCase {
     XCTAssertNil(usage[AccountID("work")]?.fiveHour)
   }
 
+  func testCodexQuotaReaderKeepsHealthyAccountWhenAnotherAccountFails() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("switchgpt-partial-quota-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(
+      at: root,
+      withIntermediateDirectories: false,
+      attributes: [.posixPermissions: 0o700]
+    )
+
+    let binaryURL = root.appendingPathComponent("fake-codex")
+    let script = #"""
+      #!/bin/bash
+      marker="$(cat "$CODEX_HOME/auth.json")"
+      request_count=0
+      while IFS= read -r line; do
+        if [[ "$line" != *'"id":'* ]]; then
+          continue
+        fi
+        request_count=$((request_count + 1))
+        request_id="$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')"
+        if [[ "$request_count" -eq 1 ]]; then
+          printf '{"id":%s,"result":{}}\n' "$request_id"
+        elif [[ "$request_count" -eq 2 ]]; then
+          if [[ "$marker" == *failure* ]]; then
+            email="failure@example.com"
+          else
+            email="success@example.com"
+          fi
+          printf '{"id":%s,"result":{"account":{"email":"%s","planType":"plus"}}}\n' "$request_id" "$email"
+        elif [[ "$request_count" -eq 3 ]]; then
+          if [[ "$marker" == *failure* ]]; then
+            printf '{"id":%s,"error":{"code":-32603,"message":"expired"}}\n' "$request_id"
+          else
+            printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":1900000000},"secondary":{"usedPercent":34,"windowDurationMins":10080,"resetsAt":1900500000}}}}\n' "$request_id"
+          fi
+        fi
+      done
+      """#
+    try Data(script.utf8).write(to: binaryURL)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binaryURL.path)
+
+    func account(
+      id: String,
+      marker: String,
+      identityHash: String
+    ) throws -> AccountRecord {
+      let home = root.appendingPathComponent(id, isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: home,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700]
+      )
+      let authURL = home.appendingPathComponent("auth.json")
+      try Data(marker.utf8).write(to: authURL)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: authURL.path)
+      return AccountRecord(
+        id: AccountID(id),
+        displayName: id,
+        detail: "",
+        planName: "Plus",
+        symbolName: "person.crop.circle",
+        accent: .orange,
+        usage: AccountUsage(
+          weekly: UsageWindow(usedPercent: 1, resetAt: Date(timeIntervalSince1970: 1_800_000_000))
+        ),
+        source: .codexHome(path: home.path),
+        identityHash: identityHash
+      )
+    }
+
+    let healthy = try account(
+      id: "healthy",
+      marker: "success",
+      identityHash: "f562576f3ed3"
+    )
+    let expired = try account(
+      id: "expired",
+      marker: "failure",
+      identityHash: "965888cf8e95"
+    )
+    let snapshots = try await CodexAppServerQuotaReader(
+      codexBinaryURL: binaryURL,
+      timeout: .seconds(2)
+    ).fetchSnapshots(for: [healthy, expired])
+
+    XCTAssertEqual(Set(snapshots.keys), [healthy.id])
+    XCTAssertEqual(snapshots[healthy.id]?.usage.fiveHour?.usedPercent, 12)
+    XCTAssertEqual(snapshots[healthy.id]?.usage.weekly.usedPercent, 34)
+  }
+
   @MainActor
   func testSimulationChangesOnlySelectedInMemoryAccount() async {
     let store = SwitchGPTAppStore(now: Date(timeIntervalSince1970: 1_700_000_000))
@@ -99,6 +190,56 @@ final class AppCoreTests: XCTestCase {
     XCTAssertNotNil(store.lastRefreshedAt)
     XCTAssertEqual(store.accounts.count, 2)
     XCTAssertFalse(store.activity.isFailure)
+  }
+
+  @MainActor
+  func testRefreshKeepsSuccessfulAccountsWhenOneAccountFails() async throws {
+    let initialAccounts = MockAccountCatalog.accounts(
+      now: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    let originalFailedUsage = initialAccounts[1].usage
+    let refreshedUsage = AccountUsage(
+      weekly: UsageWindow(usedPercent: 88, resetAt: Date(timeIntervalSince1970: 1_900_000_000))
+    )
+    let persistence = InMemoryPreviewStateStore(state: nil)
+    let store = SwitchGPTAppStore(
+      quotaReader: SelectivelyFailingQuotaReader(
+        successfulAccountID: initialAccounts[0].id,
+        snapshot: AccountQuotaSnapshot(planName: "Plus", usage: refreshedUsage)
+      ),
+      persistence: persistence,
+      initialAccounts: initialAccounts
+    )
+
+    await store.refresh()
+
+    XCTAssertEqual(store.accounts[0].usage, refreshedUsage)
+    XCTAssertEqual(store.accounts[1].usage, originalFailedUsage)
+    XCTAssertEqual(store.quotaRefreshFailedAccountIDs, [initialAccounts[1].id])
+    XCTAssertNil(store.lastRefreshedAt)
+    XCTAssertEqual(
+      store.activity,
+      .partial(message: "Updated 1 of 2 accounts. 1 account kept previous usage.")
+    )
+    XCTAssertEqual(try persistence.load()?.accounts, store.accounts)
+  }
+
+  @MainActor
+  func testRefreshReportsFailureWhenEveryAccountFails() async {
+    let initialAccounts = MockAccountCatalog.accounts(
+      now: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    let store = SwitchGPTAppStore(
+      quotaReader: SelectivelyFailingQuotaReader(successfulAccountID: nil, snapshot: nil),
+      initialAccounts: initialAccounts
+    )
+
+    await store.refresh()
+
+    XCTAssertEqual(store.accounts, initialAccounts)
+    XCTAssertEqual(store.quotaRefreshFailedAccountIDs, Set(initialAccounts.map(\.id)))
+    XCTAssertNil(store.lastRefreshedAt)
+    XCTAssertEqual(store.activity, .failure(message: "Could not refresh usage"))
   }
 
   @MainActor
@@ -1099,6 +1240,22 @@ private struct FixedSnapshotQuotaReader: QuotaReading {
     -> [AccountID: AccountQuotaSnapshot]
   {
     Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, snapshot) })
+  }
+}
+
+private struct SelectivelyFailingQuotaReader: QuotaReading {
+  let successfulAccountID: AccountID?
+  let snapshot: AccountQuotaSnapshot?
+
+  func fetchSnapshots(for accounts: [AccountRecord]) async throws
+    -> [AccountID: AccountQuotaSnapshot]
+  {
+    guard let successfulAccountID, let snapshot,
+      accounts.contains(where: { $0.id == successfulAccountID })
+    else {
+      throw QuotaReadingError.invalidProtocolResponse
+    }
+    return [successfulAccountID: snapshot]
   }
 }
 

@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 
-const releaseUrl = 'https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.1'
-const downloadUrl = 'https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.1/SwitchGPT-0.2.1-macOS-arm64.zip'
+const releaseUrl = 'https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.2'
+const downloadUrl = 'https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.2/SwitchGPT-0.2.2-macOS-arm64.zip'
 const appIcon = '/switchgpt-icon.png'
 const menuBarScreenshot = '/screenshots/statusbar-real.png'
 const dashboardScreenshot = '/screenshots/dashboard-real.jpeg'
@@ -63,7 +63,7 @@ function Hero() {
   return (
     <section className="hero section-frame" id="top">
       <div className="hero-copy">
-        <div className="eyebrow"><BrandMark small /><span>Stable macOS release · 0.2.1</span></div>
+        <div className="eyebrow"><BrandMark small /><span>Stable macOS release · 0.2.2</span></div>
         <h1>Your ChatGPT accounts, in one small app.</h1>
         <p>See Work/Codex usage across your local accounts, add another account through official sign-in, then click the account you want in the menu bar to switch in one simple step.</p>
         <div className="hero-actions"><a className="button button-primary" href={downloadUrl}>Download for Apple silicon <ArrowIcon /></a><a className="text-link" href="#install">How to install <ArrowIcon /></a></div>

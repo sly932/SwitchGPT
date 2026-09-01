@@ -204,6 +204,8 @@ struct MenuBarView: View {
       return ChatGPTStyle.dangerRed
     case .success:
       return ChatGPTStyle.successGreen
+    case .partial:
+      return ChatGPTStyle.warningOrange
     case .refreshing, .simulating, .switching:
       return ChatGPTStyle.actionBlue
     case .ready:
@@ -217,7 +219,7 @@ struct MenuBarView: View {
       return true
     case .simulating, .switching:
       return true
-    case .ready, .success, .failure:
+    case .ready, .success, .partial, .failure:
       return false
     }
   }

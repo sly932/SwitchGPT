@@ -4,9 +4,9 @@ SwitchGPT 是一款面向 macOS 的轻量工具：把你本机使用的多个 Ch
 
 它适合需要在不同 ChatGPT 账号之间继续 Work/Codex 工作、但不想反复手动查额度和登录的人。账号添加使用官方登录流程；SwitchGPT 不要求你填写 API key，也不是云端账号同步服务。
 
-[下载 macOS 版](https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.1/SwitchGPT-0.2.1-macOS-arm64.zip) · [查看 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.1) · [产品介绍](https://switchgpt.vercel.app)
+[下载 macOS 版](https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.2/SwitchGPT-0.2.2-macOS-arm64.zip) · [查看 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.2) · [产品介绍](https://switchgpt.vercel.app)
 
-> 当前公开版本为 `0.2.1` 正式版。真实的桌面账号切换仍保持实验性质，每次操作都会单独确认。
+> 当前公开版本为 `0.2.2` 正式版。真实的桌面账号切换仍保持实验性质，每次操作都会单独确认。
 
 ## 它能做什么
 
@@ -39,22 +39,22 @@ SwitchGPT 是一款面向 macOS 的轻量工具：把你本机使用的多个 Ch
 set -euo pipefail
 cd ~/Downloads
 
-curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.1/SwitchGPT-0.2.1-macOS-arm64.zip
-curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.1/SwitchGPT-0.2.1-macOS-arm64.zip.sha256
-shasum -a 256 -c SwitchGPT-0.2.1-macOS-arm64.zip.sha256
+curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.2/SwitchGPT-0.2.2-macOS-arm64.zip
+curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.2/SwitchGPT-0.2.2-macOS-arm64.zip.sha256
+shasum -a 256 -c SwitchGPT-0.2.2-macOS-arm64.zip.sha256
 
 mkdir -p "$HOME/Applications"
-ditto -x -k "SwitchGPT-0.2.1-macOS-arm64.zip" "$HOME/Applications"
+ditto -x -k "SwitchGPT-0.2.2-macOS-arm64.zip" "$HOME/Applications"
 open "$HOME/Applications/SwitchGPT.app"
 ```
 
 ### 图形界面安装（简版）
 
-1. 从 [v0.2.1 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.1) 下载 ZIP 和 `.sha256` 文件。
+1. 从 [v0.2.2 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.2) 下载 ZIP 和 `.sha256` 文件。
 2. 在下载目录执行：
 
 ```sh
-shasum -a 256 -c SwitchGPT-0.2.1-macOS-arm64.zip.sha256
+shasum -a 256 -c SwitchGPT-0.2.2-macOS-arm64.zip.sha256
 ```
 
 3. 校验显示 `OK` 后，双击 ZIP，把 `SwitchGPT.app` 拖到“应用程序”。
