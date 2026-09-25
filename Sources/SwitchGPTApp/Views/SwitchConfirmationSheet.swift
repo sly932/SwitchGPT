@@ -28,16 +28,16 @@ struct SwitchConfirmationSheet: View {
           )
 
         VStack(alignment: .leading, spacing: 3) {
-          Text(isRealSwitch ? "Switch ChatGPT account?" : "Preview this account?")
+          Text(L10n.string(isRealSwitch ? "Switch ChatGPT account?" : "Preview this account?"))
             .font(.system(size: 18, weight: .semibold))
-          Text(isRealSwitch ? "ChatGPT will restart once" : "ChatGPT will not be changed")
+          Text(L10n.string(isRealSwitch ? "ChatGPT will restart once" : "ChatGPT will not be changed"))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)
         }
       }
 
       HStack(spacing: 12) {
-        accountLabel(current?.accountLabel ?? "Current account")
+        accountLabel(current?.accountLabel ?? L10n.string("Current account"))
         Image(systemName: "arrow.right")
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(.secondary)
@@ -75,7 +75,7 @@ struct SwitchConfirmationSheet: View {
         .buttonStyle(ChatGPTSecondaryButtonStyle())
         .keyboardShortcut(.cancelAction)
 
-        Button(isRealSwitch ? "Switch account" : "Preview account") {
+        Button(L10n.string(isRealSwitch ? "Switch account" : "Preview account")) {
           onConfirm()
           dismiss()
         }
@@ -103,17 +103,15 @@ struct SwitchConfirmationSheet: View {
 
   private var explanation: String {
     if isRealSwitch {
-      return
-        "SwitchGPT verifies the target account after ChatGPT restarts. If verification fails, the original account is restored by the independent one-shot recovery process."
+      return L10n.string("SwitchGPT verifies the target account after ChatGPT restarts. If verification fails, the original account is restored by the independent one-shot recovery process.")
     }
-    return
-      "This changes only local preview state so you can evaluate the flow. It does not quit ChatGPT, replace credentials, or install a background service."
+    return L10n.string("This changes only local preview state so you can evaluate the flow. It does not quit ChatGPT, replace credentials, or install a background service.")
   }
 
   private var acknowledgementLabel: String {
-    isRealSwitch
+    L10n.string(isRealSwitch
       ? "I understand that ChatGPT will quit and reopen"
-      : "I understand this is preview data only"
+      : "I understand this is preview data only")
   }
 
   private var unvalidatedVersionWarning: some View {

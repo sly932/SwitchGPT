@@ -28,7 +28,7 @@ struct AccountCardView: View {
 
       VStack(alignment: .leading, spacing: 18) {
         UsageWindowRow(
-          title: "Weekly limit",
+          title: L10n.string("Weekly limit"),
           window: account.usage.weekly,
           resetTimeFormat: resetTimeFormat
         )
@@ -37,7 +37,7 @@ struct AccountCardView: View {
           Divider()
 
           UsageWindowRow(
-            title: "5-hour limit",
+            title: L10n.string("5-hour limit"),
             window: fiveHour,
             resetTimeFormat: resetTimeFormat
           )
@@ -72,7 +72,7 @@ struct AccountCardView: View {
         Image(systemName: "checkmark.circle.fill")
           .font(.system(size: 13))
           .foregroundStyle(ChatGPTStyle.successGreen)
-        Text(isMock ? "Current preview account" : "Current in ChatGPT")
+        Text(L10n.string(isMock ? "Current preview account" : "Current in ChatGPT"))
           .font(.system(size: 13, weight: .medium))
         Spacer()
       }
@@ -134,7 +134,7 @@ struct AccountCardView: View {
       .frame(maxWidth: .infinity)
       .contentShape(Rectangle())
       .disabled(isBusy)
-      .accessibilityHint("Removes this saved account from SwitchGPT")
+      .accessibilityHint(L10n.string("Removes this saved account from SwitchGPT"))
     }
   }
 
@@ -148,14 +148,14 @@ struct AccountCardView: View {
   }
 
   private var actionLabel: String {
-    if isMock { return "Preview this account" }
-    return switchingAvailable ? "Switch ChatGPT to this account" : "Show in menu bar"
+    if isMock { return L10n.string("Preview this account") }
+    return L10n.string(switchingAvailable ? "Switch ChatGPT to this account" : "Show in menu bar")
   }
 
   private var accessibilityHint: String {
-    if isMock { return "Opens a safe simulation confirmation" }
+    if isMock { return L10n.string("Opens a safe simulation confirmation") }
     return switchingAvailable
-      ? "Opens the experimental switch confirmation"
-      : "Selects this read-only quota for the menu bar"
+      ? L10n.string("Opens the experimental switch confirmation")
+      : L10n.string("Selects this read-only quota for the menu bar")
   }
 }

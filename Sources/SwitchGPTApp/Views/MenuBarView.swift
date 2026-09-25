@@ -5,11 +5,13 @@ struct MenuBarLabel: View {
   let store: SwitchGPTAppStore
 
   @Environment(\.openWindow) private var openWindow
+  @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
   @State private var didRequestDashboard = false
 
   var body: some View {
     Text(menuBarQuota)
       .monospacedDigit()
+      .environment(\.locale, (AppLanguage(rawValue: languageRawValue) ?? .system).locale)
       .accessibilityLabel(accessibilityQuotaLabel)
       .task {
         guard !didRequestDashboard else { return }
@@ -40,7 +42,7 @@ struct MenuBarLabel: View {
 
   private var accessibilityQuotaLabel: String {
     guard let account = store.currentAccount else {
-      return "No account selected"
+      return L10n.string("No account selected")
     }
     return account.accountLabel + ", " + quotaSummaryText(for: account)
   }
@@ -53,6 +55,7 @@ struct MenuBarView: View {
 
   @Environment(\.openWindow) private var openWindow
   @State private var hoveredAccountID: AccountID?
+  @State private var hoveredActionTitle: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -76,7 +79,7 @@ struct MenuBarView: View {
       }
 
       if let lastRefreshedAt = store.lastRefreshedAt {
-        Text("All accounts updated " + lastRefreshedAt.formatted(date: .abbreviated, time: .shortened))
+        Text(L10n.string("All accounts updated ") + L10n.date(lastRefreshedAt, date: .medium, time: .short))
           .font(.system(size: 11))
           .foregroundStyle(.secondary)
           .padding(.horizontal, 8)
@@ -128,16 +131,28 @@ struct MenuBarView: View {
       HStack(spacing: 8) {
         Image(systemName: systemImage)
           .frame(width: 16)
-        Text(title)
+        Text(L10n.string(title))
           .font(.system(size: 13, weight: .medium))
       }
       .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 7)
+      .background(
+        hoveredActionTitle == title ? ChatGPTStyle.hoverFill : Color.clear,
+        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+      )
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .foregroundStyle(.primary)
-    .padding(.horizontal, 8)
-    .padding(.vertical, 7)
+    .onHover { isHovered in
+      if isHovered {
+        hoveredActionTitle = title
+      } else if hoveredActionTitle == title {
+        hoveredActionTitle = nil
+      }
+    }
+    .animation(.easeOut(duration: 0.12), value: hoveredActionTitle)
   }
 
   private func accountButton(for account: AccountRecord) -> some View {
@@ -238,7 +253,7 @@ struct MenuBarView: View {
     if case .ready = store.activity {
       return nil
     }
-    return store.activity.message
+    return L10n.activityMessage(store.activity)
   }
 
   private var menuActivityColor: Color {

@@ -89,8 +89,8 @@ struct DashboardDetailView: View {
         }
       }
       .buttonStyle(ChatGPTIconButtonStyle())
-      .help(isRefreshing ? "Refreshing usage" : "Refresh usage")
-      .accessibilityLabel(isRefreshing ? "Refreshing usage" : "Refresh usage")
+      .help(L10n.string(isRefreshing ? "Refreshing usage" : "Refresh usage"))
+      .accessibilityLabel(L10n.string(isRefreshing ? "Refreshing usage" : "Refresh usage"))
       .disabled(isRefreshing || store.activity.isBusy)
     }
     .padding(.trailing, ChatGPTStyle.toolbarHorizontalInset)
@@ -132,16 +132,16 @@ struct DashboardDetailView: View {
   private var refreshStatusText: String? {
     switch refreshFeedback {
     case .idle:
-      if case .refreshing = store.activity { return "Refreshing" }
+      if case .refreshing = store.activity { return L10n.string("Refreshing") }
       return nil
     case .refreshing:
-      return "Refreshing"
+      return L10n.string("Refreshing")
     case .updated:
-      return "Updated"
+      return L10n.string("Updated")
     case .partial:
-      return "Partially updated"
+      return L10n.string("Partially updated")
     case .failed:
-      return "Refresh failed"
+      return L10n.string("Refresh failed")
     }
   }
 
@@ -249,7 +249,7 @@ struct DashboardDetailView: View {
       Image(systemName: activitySymbol)
         .font(.system(size: 13, weight: .medium))
         .foregroundStyle(activityColor)
-      Text(store.activity.message)
+      Text(L10n.activityMessage(store.activity))
         .font(.system(size: 13))
       Spacer()
       if !store.activity.isBusy {

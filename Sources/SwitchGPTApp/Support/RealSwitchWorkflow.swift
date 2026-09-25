@@ -8,9 +8,9 @@ enum RealSwitchWorkflowError: Error, LocalizedError {
   var errorDescription: String? {
     switch self {
     case .targetUnavailable:
-      return "The selected account is no longer configured."
+      return L10n.string("The selected account is no longer configured.")
     case .quotaRefreshFailed:
-      return "The selected account could not be refreshed before switching."
+      return L10n.string("The selected account could not be refreshed before switching.")
     }
   }
 }
@@ -55,13 +55,13 @@ enum RealSwitchWorkflow {
       case .rolledBack:
         store.failRealSwitch(
           message:
-            "Switch failed safely; the original account was restored and ChatGPT was relaunched once."
+            L10n.string("Switch failed safely; the original account was restored and ChatGPT was relaunched once.")
             + receiptSuffix(recorded: result.receiptRecorded)
         )
       case .manualRecoveryRequired:
         store.failRealSwitch(
           message:
-            "Automatic recovery stopped after its single launch budget. Manual recovery is required."
+            L10n.string("Automatic recovery stopped after its single launch budget. Manual recovery is required.")
             + receiptSuffix(recorded: result.receiptRecorded)
         )
       }
@@ -81,12 +81,12 @@ enum RealSwitchWorkflow {
     {
       return message
     }
-    return "The experimental switch was blocked by a safety check; ChatGPT was not changed."
+    return L10n.string("The experimental switch was blocked by a safety check; ChatGPT was not changed.")
   }
 
   private static func receiptSuffix(recorded: Bool) -> String {
     recorded
-      ? " A private metadata-only verification receipt was saved."
-      : " The local verification receipt could not be saved."
+      ? L10n.string(" A private metadata-only verification receipt was saved.")
+      : L10n.string(" The local verification receipt could not be saved.")
   }
 }

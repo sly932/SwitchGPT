@@ -13,6 +13,7 @@ struct DashboardView: View {
   @State private var selectedAccountID: AccountID?
   @State private var accountSignInTask: Task<Void, Never>?
   @State private var windowTopInset: CGFloat = 0
+  @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
 
   @Environment(\.openURL) private var openURL
 
@@ -61,6 +62,7 @@ struct DashboardView: View {
         topInset: windowTopInset,
         onAddOrCancel: addOrCancelAccountSignIn
       )
+      .id(languageRawValue)
       .frame(width: ChatGPTStyle.sidebarWidth)
 
       Divider()
@@ -162,6 +164,7 @@ struct DashboardView: View {
       },
       onRemove: onRemoveSelectedAccount
     )
+    .id(languageRawValue)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .confirmationDialog("Remove account?", isPresented: isRemovalDialogPresented) {
       if let account = pendingRemoval {
@@ -171,10 +174,8 @@ struct DashboardView: View {
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text(
-        "Remove this account from SwitchGPT? Its saved local profile will be removed. "
-          + "This does not delete the OpenAI account."
-      )
+      Text(L10n.string("Remove this account from SwitchGPT? Its saved local profile will be removed. ")
+        + " " + L10n.string("This does not delete the OpenAI account."))
     }
   }
 
@@ -192,11 +193,11 @@ struct DashboardView: View {
   private var updateCheckAlertTitle: String {
     switch updateStore.manualCheckNotice?.result {
     case .updateAvailable:
-      "Update Available"
+      L10n.string("Update Available")
     case .upToDate:
-      "SwitchGPT Is Up to Date"
+      L10n.string("SwitchGPT Is Up to Date")
     case .failed:
-      "Unable to Check for Updates"
+      L10n.string("Unable to Check for Updates")
     case nil:
       ""
     }
@@ -205,11 +206,11 @@ struct DashboardView: View {
   private var updateCheckAlertMessage: String {
     switch updateStore.manualCheckNotice?.result {
     case .updateAvailable(let update):
-      "SwitchGPT \(update.version.displayValue) is available."
+      L10n.format("SwitchGPT %@ is available.", update.version.displayValue)
     case .upToDate:
-      "You’re using the latest version of SwitchGPT."
+      L10n.string("You’re using the latest version of SwitchGPT.")
     case .failed:
-      "Check your internet connection and try again."
+      L10n.string("Check your internet connection and try again.")
     case nil:
       ""
     }

@@ -10,12 +10,23 @@ struct AccountListSettingsView: View {
   @State private var targetedField: AccountDisplayField?
   @State private var targetedAccount: AccountID?
   @State private var resetPreviewSurface: ResetPreviewSurface = .menu
+  @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
 
   private var settings: AccountListSettings { preferences.settings(for: surface) }
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
+        settingsSection(title: L10n.string("Language"), subtitle: L10n.string("Follow the system language or choose one for this app.")) {
+          Picker("Language", selection: $languageRawValue) {
+            Text("Follow System").tag(AppLanguage.system.rawValue)
+            Text("Simplified Chinese").tag(AppLanguage.simplifiedChinese.rawValue)
+            Text("English").tag(AppLanguage.english.rawValue)
+          }
+          .labelsHidden()
+          .frame(maxWidth: 230, alignment: .leading)
+        }
+
         VStack(alignment: .leading, spacing: 5) {
           Text("Customize account lists")
             .font(.system(size: 22, weight: .semibold))
@@ -63,11 +74,14 @@ struct AccountListSettingsView: View {
             get: { resetTimePreferences.format },
             set: { resetTimePreferences.setFormat($0) }
           )) {
-            Text("中文日期 · \(ResetTimeFormat.chinese.text(for: resetPreviewDate))")
+            Text(L10n.string("Chinese date") + " · "
+              + ResetTimeFormat.chinese.text(for: resetPreviewDate))
               .tag(ResetTimeFormat.chinese)
-            Text("English month · \(ResetTimeFormat.english.text(for: resetPreviewDate))")
+            Text(L10n.string("English month") + " · "
+              + ResetTimeFormat.english.text(for: resetPreviewDate))
               .tag(ResetTimeFormat.english)
-            Text("Compact numbers · \(ResetTimeFormat.compact.text(for: resetPreviewDate))")
+            Text(L10n.string("Compact numbers") + " · "
+              + ResetTimeFormat.compact.text(for: resetPreviewDate))
               .tag(ResetTimeFormat.compact)
           }
           .pickerStyle(.radioGroup)
@@ -75,20 +89,20 @@ struct AccountListSettingsView: View {
 
           Divider()
 
-          Text("Preview · sample account and date")
+          Text(L10n.string("Preview · sample account and date"))
             .font(.system(size: 12, weight: .medium))
 
           Picker("Preview location", selection: $resetPreviewSurface) {
-            Text("Menu bar").tag(ResetPreviewSurface.menu)
-            Text("Sidebar").tag(ResetPreviewSurface.sidebar)
-            Text("Usage detail").tag(ResetPreviewSurface.detail)
+            Text(L10n.string("Menu bar")).tag(ResetPreviewSurface.menu)
+            Text(L10n.string("Sidebar")).tag(ResetPreviewSurface.sidebar)
+            Text(L10n.string("Usage detail")).tag(ResetPreviewSurface.detail)
           }
           .pickerStyle(.segmented)
           .labelsHidden()
 
           resetTimePreview
 
-          Text("In account lists, enable the Weekly reset field to show this time.")
+          Text(L10n.string("In account lists, enable the Weekly reset field to show this time."))
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
         }
@@ -153,13 +167,14 @@ struct AccountListSettingsView: View {
       .frame(maxWidth: .infinity)
     }
     .frame(minWidth: 510, minHeight: 500)
+    .background(WindowTitleUpdater(title: L10n.string("Settings")))
   }
 
   private var resetTimePreview: some View {
     Group {
       if resetPreviewSurface == .detail {
         UsageWindowRow(
-          title: "Weekly limit",
+          title: L10n.string("Weekly limit"),
           window: UsageWindow(usedPercent: 37, resetAt: resetPreviewDate),
           resetTimeFormat: resetTimePreferences.format
         )
@@ -170,7 +185,7 @@ struct AccountListSettingsView: View {
           Image(systemName: "person.crop.circle")
             .frame(width: 22)
           VStack(alignment: .leading, spacing: 3) {
-            Text("Sample account")
+            Text(L10n.string("Sample account"))
               .font(.system(size: 12, weight: .medium))
             Text(resetTimePreferences.format.text(for: resetPreviewDate))
               .font(.system(size: 11).monospacedDigit())
@@ -213,9 +228,9 @@ struct AccountListSettingsView: View {
     @ViewBuilder content: () -> Content
   ) -> some View {
     VStack(alignment: .leading, spacing: 9) {
-      Text(title)
+      Text(L10n.string(title))
         .font(.system(size: 14, weight: .semibold))
-      Text(subtitle)
+      Text(L10n.string(subtitle))
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
       content()
@@ -233,7 +248,7 @@ struct AccountListSettingsView: View {
       ))
       .toggleStyle(.checkbox)
       Spacer(minLength: 5)
-      dragHandle("field:" + field.rawValue, label: "Reorder \(field.title)")
+      dragHandle("field:" + field.rawValue, label: L10n.format("Reorder %@", field.title))
         .onKeyPress { press in
           moveFieldWithKeyboard(field, key: press.key)
         }
@@ -261,7 +276,7 @@ struct AccountListSettingsView: View {
         .lineLimit(1)
         .truncationMode(.middle)
       Spacer(minLength: 5)
-      dragHandle("account:" + account.id.rawValue, label: "Reorder \(account.accountLabel)")
+      dragHandle("account:" + account.id.rawValue, label: L10n.format("Reorder %@", account.accountLabel))
         .onKeyPress { press in
           moveAccountWithKeyboard(account.id, key: press.key)
         }
