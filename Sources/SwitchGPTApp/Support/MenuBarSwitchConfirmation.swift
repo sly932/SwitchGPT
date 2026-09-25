@@ -9,18 +9,19 @@ enum MenuBarSwitchConfirmation {
   ) -> Bool {
     let alert = NSAlert()
     alert.alertStyle = .warning
-    alert.messageText = "Switch ChatGPT to \(targetName)?"
+    alert.messageText = L10n.format("Switch ChatGPT to %@?", targetName)
     let compatibilityNotice =
       hasUnvalidatedChatGPTVersion
-      ? "\n\nThis ChatGPT version has not been validated with SwitchGPT yet. SwitchGPT will still try this switch; if the target cannot be verified, it restores the original account with one recovery launch."
+      ? "\n\n" + L10n.string("This ChatGPT version has not been validated with SwitchGPT yet. SwitchGPT will still try this switch; if the target cannot be verified, it restores the original account with one recovery launch.")
       : ""
-    alert.informativeText =
-      "\(sourceName) → \(targetName)\n\nChatGPT will quit and reopen once. If verification fails, SwitchGPT will restore the original account using its independent one-shot recovery process.\(compatibilityNotice)"
-    alert.addButton(withTitle: "Switch account")
-    alert.addButton(withTitle: "Cancel")
+    alert.informativeText = "\(sourceName) → \(targetName)\n\n"
+      + L10n.string("ChatGPT will quit and reopen once. If verification fails, SwitchGPT will restore the original account using its independent one-shot recovery process.")
+      + compatibilityNotice
+    alert.addButton(withTitle: L10n.string("Switch account"))
+    alert.addButton(withTitle: L10n.string("Cancel"))
 
     let noRunningTasks = NSButton(
-      checkboxWithTitle: "No Work or Codex task is currently running",
+      checkboxWithTitle: L10n.string("No Work or Codex task is currently running"),
       target: nil,
       action: nil
     )

@@ -6,7 +6,7 @@ struct TokenActivityCardView: View {
   let account: AccountRecord
 
   @State private var mode: ActivityMode = .daily
-  @State private var selectedDate: String?
+  @State private var hoveredDate: String?
   @Environment(\.colorScheme) private var colorScheme
 
   private var activity: AccountTokenActivity? { account.usage.tokenActivity }
@@ -32,7 +32,7 @@ struct TokenActivityCardView: View {
         chartSection(activity)
       } else {
         ContentUnavailableView(
-          account.usage.tokenActivityWasLoaded ? "暂无 Token 数据" : "暂时无法读取 Token 活动",
+          L10n.string(account.usage.tokenActivityWasLoaded ? "暂无 Token 数据" : "暂时无法读取 Token 活动"),
           systemImage: "chart.bar.xaxis",
           description: Text("稍后点击右上角的刷新按钮重试。")
         )
@@ -96,7 +96,7 @@ struct TokenActivityCardView: View {
     .padding(.horizontal, 6)
     .frame(height: 62)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("\(metric.title)：\(metric.accessibilityValue)")
+    .accessibilityLabel(L10n.format("%@: %@", metric.title, metric.accessibilityValue))
   }
 
   private func chartSection(_ activity: AccountTokenActivity) -> some View {
@@ -107,7 +107,7 @@ struct TokenActivityCardView: View {
         Spacer()
         Picker("统计方式", selection: $mode) {
           ForEach(ActivityMode.allCases) { option in
-            Text(option.rawValue).tag(option)
+            Text(L10n.string(option.rawValue)).tag(option)
           }
         }
         .pickerStyle(.segmented)
@@ -130,7 +130,7 @@ struct TokenActivityCardView: View {
           .frame(maxWidth: .infinity, minHeight: 120)
       }
 
-      Text(chartExplanation)
+      Text(L10n.string(chartExplanation))
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
     }
@@ -152,24 +152,32 @@ struct TokenActivityCardView: View {
                 ForEach(week.days, id: \.self) { date in
                   let value = byDate[date]
                   Button {
-                    selectedDate = date
+                    hoveredDate = date
                   } label: {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                       .fill(heatColor(value, peak: peak))
                       .frame(width: 14, height: 14)
                       .overlay {
-                        if selectedDate == date {
+                        if hoveredDate == date {
                           RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .stroke(ChatGPTStyle.actionBlue, lineWidth: 2)
                         }
                       }
-                  }
-                  .buttonStyle(.plain)
-                  .help("\(date)：\(value.map { numberString($0) + " Token" } ?? "未返回数据")")
+                      .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isHovered in
+                      if isHovered {
+                        hoveredDate = date
+                      } else if hoveredDate == date {
+                        hoveredDate = nil
+                      }
+                    }
+                    .help(dayValue(date: date, tokens: value, exact: true))
                   .accessibilityLabel(
-                    "\(date)，\(value.map { numberString($0) + " Token" } ?? "未返回数据")")
+                    dayValue(date: date, tokens: value, exact: true))
                 }
-                Text(week.monthLabel)
+        Text(week.monthLabel)
                   .font(.system(size: 10))
                   .foregroundStyle(.secondary)
                   .frame(height: 16)
@@ -186,14 +194,12 @@ struct TokenActivityCardView: View {
         }
       }
 
-      if let selectedDate {
-        Text(
-          "\(selectedDate) · \(byDate[selectedDate].map { numberString($0) + " Token" } ?? "未返回数据")"
-        )
+      if let hoveredDate {
+        Text(dayValue(date: hoveredDate, tokens: byDate[hoveredDate], exact: false))
         .font(.system(size: 12))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.primary)
       } else {
-        Text("点击日期方格查看数值")
+        Text("悬浮在日期方格上查看数值")
           .font(.system(size: 12))
           .foregroundStyle(.secondary)
       }
@@ -236,7 +242,7 @@ struct TokenActivityCardView: View {
     let upperBound = Double(max(points.map(\.tokens).max() ?? 0, 1)) * 1.15
     return VStack(spacing: 4) {
       Chart(points) { point in
-        BarMark(x: .value("周", point.date), y: .value("Token", point.tokens))
+        BarMark(x: .value(L10n.string("周"), point.date), y: .value("Token", point.tokens))
           .foregroundStyle(ChatGPTStyle.actionBlue.gradient)
       }
       .chartXAxis(.hidden)
@@ -245,7 +251,7 @@ struct TokenActivityCardView: View {
       .frame(height: 166)
       chartDateRange(points)
     }
-    .accessibilityLabel("每周 Token 活动，共 \(points.count) 个有记录的周")
+    .accessibilityLabel(L10n.format("Weekly token activity, %d recorded weeks", points.count))
   }
 
   private func cumulativeChart(_ buckets: [AccountTokenActivity.DailyBucket]) -> some View {
@@ -253,9 +259,9 @@ struct TokenActivityCardView: View {
     let upperBound = Double(max(points.map(\.tokens).max() ?? 0, 1)) * 1.15
     return VStack(spacing: 4) {
       Chart(points) { point in
-        LineMark(x: .value("日期", point.date), y: .value("Token", point.tokens))
+        LineMark(x: .value(L10n.string("日期"), point.date), y: .value("Token", point.tokens))
           .foregroundStyle(ChatGPTStyle.actionBlue)
-        PointMark(x: .value("日期", point.date), y: .value("Token", point.tokens))
+        PointMark(x: .value(L10n.string("日期"), point.date), y: .value("Token", point.tokens))
           .foregroundStyle(ChatGPTStyle.actionBlue)
       }
       .chartXAxis(.hidden)
@@ -264,7 +270,7 @@ struct TokenActivityCardView: View {
       .frame(height: 166)
       chartDateRange(points)
     }
-    .accessibilityLabel("已返回日期的累计 Token 活动，共 \(points.count) 天")
+    .accessibilityLabel(L10n.format("Cumulative token activity, %d recorded days", points.count))
   }
 
   private var tokenAxis: some AxisContent {
@@ -294,20 +300,20 @@ struct TokenActivityCardView: View {
   private func metrics(for activity: AccountTokenActivity) -> [Metric] {
     [
       Metric(
-        title: "累计 Token 数", value: compactNumber(activity.lifetimeTokens),
-        accessibilityValue: activity.lifetimeTokens.map(numberString) ?? "暂无数据"),
+        title: L10n.string("累计 Token 数"), value: compactNumber(activity.lifetimeTokens),
+        accessibilityValue: activity.lifetimeTokens.map(numberString) ?? L10n.string("暂无数据")),
       Metric(
-        title: "单日峰值 Token", value: compactNumber(activity.peakDailyTokens),
-        accessibilityValue: activity.peakDailyTokens.map(numberString) ?? "暂无数据"),
+        title: L10n.string("单日峰值 Token"), value: compactNumber(activity.peakDailyTokens),
+        accessibilityValue: activity.peakDailyTokens.map(numberString) ?? L10n.string("暂无数据")),
       Metric(
-        title: "最长单轮时长", value: durationString(activity.longestRunningTurnSec),
+        title: L10n.string("最长单轮时长"), value: durationString(activity.longestRunningTurnSec),
         accessibilityValue: durationString(activity.longestRunningTurnSec)),
       Metric(
-        title: "当前连续天数", value: activity.currentStreakDays.map { "\($0) 天" } ?? "—",
-        accessibilityValue: activity.currentStreakDays.map { "\($0) 天" } ?? "暂无数据"),
+        title: L10n.string("当前连续天数"), value: activity.currentStreakDays.map { L10n.format("%d days", $0) } ?? "—",
+        accessibilityValue: activity.currentStreakDays.map { L10n.format("%d days", $0) } ?? L10n.string("暂无数据")),
       Metric(
-        title: "最长连续天数", value: activity.longestStreakDays.map { "\($0) 天" } ?? "—",
-        accessibilityValue: activity.longestStreakDays.map { "\($0) 天" } ?? "暂无数据"),
+        title: L10n.string("最长连续天数"), value: activity.longestStreakDays.map { L10n.format("%d days", $0) } ?? "—",
+        accessibilityValue: activity.longestStreakDays.map { L10n.format("%d days", $0) } ?? L10n.string("暂无数据")),
     ]
   }
 
@@ -339,7 +345,7 @@ struct TokenActivityCardView: View {
         dateKey(calendar.date(byAdding: .day, value: offset, to: start)!, calendar: calendar)
       }
       let month = calendar.component(.month, from: start)
-      let label = month == previousMonth ? "" : "\(month)月"
+      let label = month == previousMonth ? "" : L10n.month(month)
       result.append(Week(startDate: days[0], days: days, monthLabel: label))
       previousMonth = month
       start = calendar.date(byAdding: .day, value: 7, to: start)!
@@ -388,27 +394,42 @@ struct TokenActivityCardView: View {
   }
 
   private func numberString(_ value: Int) -> String {
-    value.formatted(.number.grouping(.automatic))
+    value.formatted(.number.grouping(.automatic).locale(AppLanguage.selected.locale))
   }
 
   private func compactNumber(_ value: Int?) -> String {
     guard let value else { return "—" }
-    if value >= 100_000_000 { return compact(Double(value) / 100_000_000) + "亿" }
-    if value >= 10_000 { return compact(Double(value) / 10_000) + "万" }
+    let units: [(Int, String)] = AppLanguage.selected.resourceCode == "zh-Hans"
+      ? [(100_000_000, "亿"), (10_000_000, "千万"), (1_000_000, "百万"), (10_000, "万"), (1_000, "千")]
+      : [(1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")]
+    for (threshold, suffix) in units where value >= threshold {
+      return compact(Double(value) / Double(threshold)) + suffix
+    }
     return numberString(value)
   }
 
+  private func dayValue(date: String, tokens: Int?, exact: Bool) -> String {
+    guard let tokens else { return "\(date) · " + L10n.string("未返回数据") }
+    let amount = compactNumber(tokens)
+    if exact, amount != numberString(tokens) {
+      return "\(date) · \(amount) Token (\(numberString(tokens)))"
+    }
+    return "\(date) · \(amount) Token"
+  }
+
   private func compact(_ value: Double) -> String {
-    let rounded = String(format: "%.1f", value)
-    return rounded.hasSuffix(".0") ? String(rounded.dropLast(2)) : rounded
+    let digits = value < 10 ? 2 : value < 100 ? 1 : 0
+    let rounded = String(format: "%.*f", digits, value)
+    guard rounded.contains(".") else { return rounded }
+    return rounded.replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
   }
 
   private func durationString(_ seconds: Int?) -> String {
     guard let seconds else { return "—" }
     if seconds >= 3_600 {
-      return "\(seconds / 3_600)时 \((seconds % 3_600) / 60)分"
+      return L10n.format("%d h %d m", seconds / 3_600, (seconds % 3_600) / 60)
     }
-    return "\(seconds / 60)分 \(seconds % 60)秒"
+    return L10n.format("%d m %d s", seconds / 60, seconds % 60)
   }
 
   private struct Metric {

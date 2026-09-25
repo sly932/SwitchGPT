@@ -9,7 +9,7 @@ struct SwitchGPTCommands: Commands {
 
   var body: some Commands {
     CommandGroup(after: .appInfo) {
-      Button(updateStore.isChecking ? "Checking for Updates…" : "Check for Updates…") {
+      Button(L10n.string(updateStore.isChecking ? "Checking for Updates…" : "Check for Updates…")) {
         openWindow(id: "dashboard")
         Task { await updateStore.checkManually() }
       }
@@ -17,16 +17,16 @@ struct SwitchGPTCommands: Commands {
     }
 
     CommandMenu("SwitchGPT") {
-      Button("Open Dashboard") {
+      Button(L10n.string("Open Dashboard")) {
         openWindow(id: "dashboard")
       }
       .keyboardShortcut("0")
 
-      Button("Customize Display…") {
+      Button(L10n.string("Customize Display…")) {
         openWindow(id: "display-settings")
       }
 
-      Button("Refresh Usage") {
+      Button(L10n.string("Refresh Usage")) {
         Task { await store.refresh() }
       }
       .keyboardShortcut("r", modifiers: [.command, .option])

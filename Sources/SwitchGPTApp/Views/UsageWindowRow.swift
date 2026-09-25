@@ -12,7 +12,7 @@ struct UsageWindowRow: View {
           .font(.system(size: 13, weight: .medium))
           .foregroundStyle(.secondary)
         Spacer()
-        Text(String(window.remainingPercent) + "% left")
+        Text(String(window.remainingPercent) + L10n.string("% left"))
           .font(.system(size: 20, weight: .semibold).monospacedDigit())
           .foregroundStyle(quotaColor)
       }
@@ -31,12 +31,12 @@ struct UsageWindowRow: View {
       .frame(height: 5)
       .accessibilityElement()
       .accessibilityLabel(title)
-      .accessibilityValue(String(window.remainingPercent) + "% left")
+      .accessibilityValue(String(window.remainingPercent) + L10n.string("% left"))
 
       HStack {
-        Text(String(window.usedPercent) + "% used")
+        Text(String(window.usedPercent) + L10n.string("% used"))
         Spacer()
-        Text("Resets " + window.resetAt.formatted(date: .abbreviated, time: .shortened))
+        Text(L10n.string("Resets ") + L10n.date(window.resetAt, date: .medium, time: .short))
       }
       .font(.system(size: 12).monospacedDigit())
       .foregroundStyle(.secondary)

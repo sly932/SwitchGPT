@@ -42,6 +42,8 @@ cp "$build_binary" "$app_binary"
 cp "$build_recovery_helper" "$recovery_helper"
 cp "$repository_root/App/Info.plist" "$info_plist"
 cp "$repository_root/App/Assets/AppIcon.icns" "$app_icon"
+cp -R "$repository_root/App/Resources/en.lproj" "$app_resources/"
+cp -R "$repository_root/App/Resources/zh-Hans.lproj" "$app_resources/"
 chmod 755 "$app_binary"
 chmod 755 "$recovery_helper"
 

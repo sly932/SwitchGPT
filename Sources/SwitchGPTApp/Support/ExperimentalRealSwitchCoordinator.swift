@@ -44,25 +44,25 @@ enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
   var errorDescription: String? {
     switch self {
     case .unsignedHost:
-      return "This build is not signed for experimental switching."
+      return L10n.string("This build is not signed for experimental switching.")
     case .invalidTargetApplication:
-      return "The installed ChatGPT app could not be verified."
+      return L10n.string("The installed ChatGPT app could not be verified.")
     case .targetApplicationChanged:
-      return "ChatGPT changed after confirmation. Review and confirm the switch again."
+      return L10n.string("ChatGPT changed after confirmation. Review and confirm the switch again.")
     case .activeAccountNotConfigured:
-      return "The account currently active in ChatGPT is not configured in SwitchGPT."
+      return L10n.string("The account currently active in ChatGPT is not configured in SwitchGPT.")
     case .activeAccountNotPreserved:
-      return "SwitchGPT must first preserve the active account in private storage."
+      return L10n.string("SwitchGPT must first preserve the active account in private storage.")
     case .targetAccountChanged:
-      return "The selected account credentials no longer match the pinned account."
+      return L10n.string("The selected account credentials no longer match the pinned account.")
     case .sourceAndTargetMatch:
-      return "ChatGPT is already using this account."
+      return L10n.string("ChatGPT is already using this account.")
     case .insecureStorage:
-      return "SwitchGPT could not create private recovery storage."
+      return L10n.string("SwitchGPT could not create private recovery storage.")
     case .recoveryHelperFailed:
-      return "The independent recovery process could not be verified or completed."
+      return L10n.string("The independent recovery process could not be verified or completed.")
     case .switchFailed:
-      return "The switch did not complete; SwitchGPT attempted to restore the original account."
+      return L10n.string("The switch did not complete; SwitchGPT attempted to restore the original account.")
     }
   }
 }

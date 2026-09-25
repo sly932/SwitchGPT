@@ -27,7 +27,7 @@ struct CreditsBalanceRow: View {
 
   private var balanceText: String {
     if credits.unlimited {
-      return "Unlimited"
+      return L10n.string("Unlimited")
     }
     if let balance = credits.usdBalance {
       let formatter = NumberFormatter()
@@ -41,6 +41,6 @@ struct CreditsBalanceRow: View {
         ?? NSDecimalNumber(decimal: balance).stringValue
       return "US$" + amount
     }
-    return credits.hasCredits ? "Available" : "Unavailable"
+    return L10n.string(credits.hasCredits ? "Available" : "Unavailable")
   }
 }
