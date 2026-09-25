@@ -56,7 +56,7 @@ public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
         )
       self.accountsRootURL =
         applicationSupport
-        .appendingPathComponent("SwitchGPT", isDirectory: true)
+        .appendingPathComponent("SwitchGPT-sly", isDirectory: true)
         .appendingPathComponent("Accounts", isDirectory: true)
     }
   }
