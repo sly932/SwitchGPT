@@ -56,11 +56,20 @@ extension AccountListSettings {
   func summary(
     for account: AccountRecord,
     resetTimeFormat: ResetTimeFormat,
-    refreshFailed: Bool = false
+    refreshFailed: Bool = false,
+    excludingWeeklyReset: Bool = false
   ) -> String {
-    orderedVisibleFields.map {
+    orderedVisibleFields.filter { !excludingWeeklyReset || $0 != .weeklyReset }.map {
       $0.text(for: account, resetTimeFormat: resetTimeFormat, refreshFailed: refreshFailed)
     }
       .joined(separator: " · ")
+  }
+
+  func weeklyResetText(
+    for account: AccountRecord,
+    resetTimeFormat: ResetTimeFormat
+  ) -> String? {
+    guard visibleFields.contains(.weeklyReset) else { return nil }
+    return resetTimeFormat.text(for: account.usage.weekly.resetAt)
   }
 }

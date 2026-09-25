@@ -157,58 +157,63 @@ struct MenuBarView: View {
 
   private func accountButton(for account: AccountRecord) -> some View {
     let isCurrent = store.currentAccountID.map { $0 == account.id } ?? false
+    let otherDetails = listPreferences.menu.summary(
+      for: account,
+      resetTimeFormat: resetTimePreferences.format,
+      refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
+      excludingWeeklyReset: true
+    )
+    let resetText = listPreferences.menu.weeklyResetText(
+      for: account,
+      resetTimeFormat: resetTimePreferences.format
+    )
     return Button {
       Task {
         await switchFromMenu(to: account)
       }
     } label: {
-      HStack(spacing: 8) {
-        Image(systemName: account.symbolName)
-          .frame(width: 16)
-        if listPreferences.menu.density == .compact {
-          Text(account.compactAccountLabel())
-            .font(.system(size: 12, weight: isCurrent ? .semibold : .regular))
-            .lineLimit(1)
-          Text(listPreferences.menu.summary(
-            for: account,
-            resetTimeFormat: resetTimePreferences.format,
-            refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
-          ))
-          .font(.system(size: 11))
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-          .help(listPreferences.menu.summary(
-            for: account,
-            resetTimeFormat: resetTimePreferences.format,
-            refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
-          ))
-        } else {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(account.accountLabel)
-              .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 8) {
+          Image(systemName: account.symbolName)
+            .frame(width: 16)
+          if listPreferences.menu.density == .compact {
+            Text(account.compactAccountLabel())
+              .font(.system(size: 12, weight: isCurrent ? .semibold : .regular))
               .lineLimit(1)
-              .truncationMode(.middle)
-            if !listPreferences.menu.orderedVisibleFields.isEmpty {
-              Text(listPreferences.menu.summary(
-                for: account,
-                resetTimeFormat: resetTimePreferences.format,
-                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
-              ))
-              .font(.system(size: 11))
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-              .help(listPreferences.menu.summary(
-                for: account,
-                resetTimeFormat: resetTimePreferences.format,
-                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
-              ))
+            if !otherDetails.isEmpty {
+              Text(otherDetails)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .help(otherDetails)
+            }
+          } else {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(account.accountLabel)
+                .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                .lineLimit(1)
+                .truncationMode(.middle)
+              if !otherDetails.isEmpty {
+                Text(otherDetails)
+                  .font(.system(size: 11))
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+                  .help(otherDetails)
+              }
             }
           }
+          Spacer(minLength: 2)
+          if isCurrent {
+            Image(systemName: "checkmark")
+              .foregroundStyle(ChatGPTStyle.successGreen)
+          }
         }
-        Spacer(minLength: 2)
-        if isCurrent {
-          Image(systemName: "checkmark")
-            .foregroundStyle(ChatGPTStyle.successGreen)
+        if let resetText {
+          Text(resetText)
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .help(resetText)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
