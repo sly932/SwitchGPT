@@ -103,16 +103,26 @@ final class AppCoreTests: XCTestCase {
           printf '{"id":%s,"result":{}}\n' "$request_id"
         elif [[ "$request_count" -eq 2 ]]; then
           if [[ "$marker" == *failure* ]]; then
-            email="failure@example.com"
+            if [[ "$marker" == *usage-failure* ]]; then
+              email="usage-failure@example.com"
+            else
+              email="failure@example.com"
+            fi
           else
             email="success@example.com"
           fi
           printf '{"id":%s,"result":{"account":{"email":"%s","planType":"plus"}}}\n' "$request_id" "$email"
         elif [[ "$request_count" -eq 3 ]]; then
-          if [[ "$marker" == *failure* ]]; then
+          if [[ "$marker" == failure ]]; then
             printf '{"id":%s,"error":{"code":-32603,"message":"expired"}}\n' "$request_id"
           else
             printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":1900000000},"secondary":{"usedPercent":34,"windowDurationMins":10080,"resetsAt":1900500000}}}}\n' "$request_id"
+          fi
+        elif [[ "$request_count" -eq 4 ]]; then
+          if [[ "$marker" == *usage-failure* ]]; then
+            printf '{"id":%s,"error":{"code":-32601,"message":"method unavailable"}}\n' "$request_id"
+          else
+            printf '{"id":%s,"result":{"summary":{"lifetimeTokens":1234567,"peakDailyTokens":45678,"longestRunningTurnSec":540,"currentStreakDays":8,"longestStreakDays":14},"dailyUsageBuckets":[{"startDate":"2026-06-18","tokens":12345}]}}\n' "$request_id"
           fi
         fi
       done
@@ -159,14 +169,52 @@ final class AppCoreTests: XCTestCase {
       marker: "failure",
       identityHash: "965888cf8e95"
     )
+    let usageUnavailableIdentity = try CodexAccountDecoder.decode(
+      from: Data(#"{"account":{"email":"usage-failure@example.com","planType":"plus"}}"#.utf8)
+    ).identityHash
+    let usageUnavailable = try account(
+      id: "usage-unavailable",
+      marker: "usage-failure",
+      identityHash: usageUnavailableIdentity
+    )
     let snapshots = try await CodexAppServerQuotaReader(
       codexBinaryURL: binaryURL,
       timeout: .seconds(2)
-    ).fetchSnapshots(for: [healthy, expired])
+    ).fetchSnapshots(for: [healthy, expired, usageUnavailable])
 
-    XCTAssertEqual(Set(snapshots.keys), [healthy.id])
+    XCTAssertEqual(Set(snapshots.keys), [healthy.id, usageUnavailable.id])
     XCTAssertEqual(snapshots[healthy.id]?.usage.fiveHour?.usedPercent, 12)
     XCTAssertEqual(snapshots[healthy.id]?.usage.weekly.usedPercent, 34)
+    XCTAssertEqual(snapshots[healthy.id]?.usage.tokenActivity?.lifetimeTokens, 1_234_567)
+    XCTAssertEqual(
+      snapshots[healthy.id]?.usage.tokenActivity?.dailyUsageBuckets?.first?.tokens,
+      12_345
+    )
+    XCTAssertEqual(snapshots[healthy.id]?.usage.tokenActivityWasLoaded, true)
+    XCTAssertEqual(snapshots[usageUnavailable.id]?.usage.weekly.usedPercent, 34)
+    XCTAssertNil(snapshots[usageUnavailable.id]?.usage.tokenActivity)
+    XCTAssertEqual(snapshots[usageUnavailable.id]?.usage.tokenActivityWasLoaded, false)
+  }
+
+  func testTokenActivityDecoderPreservesUnknownFields() throws {
+    let data = Data(
+      #"""
+      {
+        "summary": {
+          "lifetimeTokens": null,
+          "peakDailyTokens": 100,
+          "longestRunningTurnSec": null,
+          "currentStreakDays": 2,
+          "longestStreakDays": 4
+        },
+        "dailyUsageBuckets": null
+      }
+      """#.utf8
+    )
+    let activity = try CodexTokenActivityDecoder.decode(from: data)
+    XCTAssertNil(activity.lifetimeTokens)
+    XCTAssertEqual(activity.peakDailyTokens, 100)
+    XCTAssertNil(activity.dailyUsageBuckets)
   }
 
   @MainActor

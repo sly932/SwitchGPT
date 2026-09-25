@@ -173,6 +173,8 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
   public let creditsWereLoaded: Bool
   public let resetCredits: RateLimitResetCreditsSummary?
   public let resetCreditsWereLoaded: Bool
+  public let tokenActivity: AccountTokenActivity?
+  public let tokenActivityWasLoaded: Bool
 
   public init(
     weekly: UsageWindow,
@@ -180,7 +182,9 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
     credits: CreditBalance? = nil,
     creditsWereLoaded: Bool? = nil,
     resetCredits: RateLimitResetCreditsSummary? = nil,
-    resetCreditsWereLoaded: Bool? = nil
+    resetCreditsWereLoaded: Bool? = nil,
+    tokenActivity: AccountTokenActivity? = nil,
+    tokenActivityWasLoaded: Bool = false
   ) {
     self.weekly = weekly
     self.fiveHour = fiveHour
@@ -188,6 +192,8 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
     self.creditsWereLoaded = creditsWereLoaded ?? (credits != nil)
     self.resetCredits = resetCredits
     self.resetCreditsWereLoaded = resetCreditsWereLoaded ?? (resetCredits != nil)
+    self.tokenActivity = tokenActivity
+    self.tokenActivityWasLoaded = tokenActivityWasLoaded
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -197,6 +203,8 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
     case creditsWereLoaded
     case resetCredits
     case resetCreditsWereLoaded
+    case tokenActivity
+    case tokenActivityWasLoaded
   }
 
   public init(from decoder: Decoder) throws {
@@ -210,6 +218,58 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
       try container.decodeIfPresent(RateLimitResetCreditsSummary.self, forKey: .resetCredits)
     resetCreditsWereLoaded =
       try container.decodeIfPresent(Bool.self, forKey: .resetCreditsWereLoaded) ?? false
+    tokenActivity = try container.decodeIfPresent(AccountTokenActivity.self, forKey: .tokenActivity)
+    tokenActivityWasLoaded =
+      try container.decodeIfPresent(Bool.self, forKey: .tokenActivityWasLoaded) ?? false
+  }
+
+  public func withTokenActivity(_ activity: AccountTokenActivity) -> AccountUsage {
+    AccountUsage(
+      weekly: weekly,
+      fiveHour: fiveHour,
+      credits: credits,
+      creditsWereLoaded: creditsWereLoaded,
+      resetCredits: resetCredits,
+      resetCreditsWereLoaded: resetCreditsWereLoaded,
+      tokenActivity: activity,
+      tokenActivityWasLoaded: true
+    )
+  }
+}
+
+/// The account-level usage returned by Codex services. Missing values are unknown, not zero.
+public struct AccountTokenActivity: Codable, Equatable, Hashable, Sendable {
+  public struct DailyBucket: Codable, Equatable, Hashable, Sendable {
+    public let startDate: String
+    public let tokens: Int
+
+    public init(startDate: String, tokens: Int) {
+      self.startDate = startDate
+      self.tokens = tokens
+    }
+  }
+
+  public let lifetimeTokens: Int?
+  public let peakDailyTokens: Int?
+  public let longestRunningTurnSec: Int?
+  public let currentStreakDays: Int?
+  public let longestStreakDays: Int?
+  public let dailyUsageBuckets: [DailyBucket]?
+
+  public init(
+    lifetimeTokens: Int?,
+    peakDailyTokens: Int?,
+    longestRunningTurnSec: Int?,
+    currentStreakDays: Int?,
+    longestStreakDays: Int?,
+    dailyUsageBuckets: [DailyBucket]?
+  ) {
+    self.lifetimeTokens = lifetimeTokens
+    self.peakDailyTokens = peakDailyTokens
+    self.longestRunningTurnSec = longestRunningTurnSec
+    self.currentStreakDays = currentStreakDays
+    self.longestStreakDays = longestStreakDays
+    self.dailyUsageBuckets = dailyUsageBuckets
   }
 }
 
