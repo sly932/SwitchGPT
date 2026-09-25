@@ -49,6 +49,7 @@ struct MenuBarLabel: View {
 struct MenuBarView: View {
   let store: SwitchGPTAppStore
   let listPreferences: AccountListPreferences
+  let resetTimePreferences: ResetTimePreferences
 
   @Environment(\.openWindow) private var openWindow
   @State private var hoveredAccountID: AccountID?
@@ -155,11 +156,17 @@ struct MenuBarView: View {
             .lineLimit(1)
           Text(listPreferences.menu.summary(
             for: account,
+            resetTimeFormat: resetTimePreferences.format,
             refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
           ))
           .font(.system(size: 11))
           .foregroundStyle(.secondary)
           .lineLimit(1)
+          .help(listPreferences.menu.summary(
+            for: account,
+            resetTimeFormat: resetTimePreferences.format,
+            refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
+          ))
         } else {
           VStack(alignment: .leading, spacing: 2) {
             Text(account.accountLabel)
@@ -169,11 +176,17 @@ struct MenuBarView: View {
             if !listPreferences.menu.orderedVisibleFields.isEmpty {
               Text(listPreferences.menu.summary(
                 for: account,
+                resetTimeFormat: resetTimePreferences.format,
                 refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
               ))
               .font(.system(size: 11))
               .foregroundStyle(.secondary)
               .lineLimit(1)
+              .help(listPreferences.menu.summary(
+                for: account,
+                resetTimeFormat: resetTimePreferences.format,
+                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
+              ))
             }
           }
         }

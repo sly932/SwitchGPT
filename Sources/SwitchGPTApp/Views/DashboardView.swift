@@ -5,6 +5,7 @@ struct DashboardView: View {
   let store: SwitchGPTAppStore
   let updateStore: AppUpdateStore
   let listPreferences: AccountListPreferences
+  let resetTimePreferences: ResetTimePreferences
 
   @State private var pendingSwitch: AccountRecord?
   @State private var pendingRealSwitch: RealSwitchPlan?
@@ -55,6 +56,7 @@ struct DashboardView: View {
         store: store,
         updateStore: updateStore,
         listPreferences: listPreferences,
+        resetTimePreferences: resetTimePreferences,
         selection: $selectedAccountID,
         topInset: windowTopInset,
         onAddOrCancel: addOrCancelAccountSignIn
@@ -152,6 +154,7 @@ struct DashboardView: View {
       account: selectedAccount,
       isCurrent: selectedAccountIsCurrent,
       allowsCurrentAction: selectedAccountAllowsCurrentAction,
+      resetTimeFormat: resetTimePreferences.format,
       onPreviewSwitch: {
         if let selectedAccount {
           requestSwitch(to: selectedAccount)

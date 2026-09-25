@@ -3,11 +3,13 @@ import SwitchGPTAppCore
 
 struct AccountListSettingsView: View {
   let preferences: AccountListPreferences
+  let resetTimePreferences: ResetTimePreferences
   let store: SwitchGPTAppStore
 
   @State private var surface: AccountListSurface = .menu
   @State private var targetedField: AccountDisplayField?
   @State private var targetedAccount: AccountID?
+  @State private var resetPreviewSurface: ResetPreviewSurface = .menu
 
   private var settings: AccountListSettings { preferences.settings(for: surface) }
 
@@ -53,6 +55,44 @@ struct AccountListSettingsView: View {
           .labelsHidden()
         }
 
+        settingsSection(
+          title: "Reset time format",
+          subtitle: "One format for the menu bar, dashboard sidebar, and usage detail. Times use this Mac's time zone."
+        ) {
+          Picker("Reset time format", selection: Binding(
+            get: { resetTimePreferences.format },
+            set: { resetTimePreferences.setFormat($0) }
+          )) {
+            Text("中文日期 · \(ResetTimeFormat.chinese.text(for: resetPreviewDate))")
+              .tag(ResetTimeFormat.chinese)
+            Text("English month · \(ResetTimeFormat.english.text(for: resetPreviewDate))")
+              .tag(ResetTimeFormat.english)
+            Text("Compact numbers · \(ResetTimeFormat.compact.text(for: resetPreviewDate))")
+              .tag(ResetTimeFormat.compact)
+          }
+          .pickerStyle(.radioGroup)
+          .labelsHidden()
+
+          Divider()
+
+          Text("Preview · sample account and date")
+            .font(.system(size: 12, weight: .medium))
+
+          Picker("Preview location", selection: $resetPreviewSurface) {
+            Text("Menu bar").tag(ResetPreviewSurface.menu)
+            Text("Sidebar").tag(ResetPreviewSurface.sidebar)
+            Text("Usage detail").tag(ResetPreviewSurface.detail)
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+
+          resetTimePreview
+
+          Text("In account lists, enable the Weekly reset field to show this time.")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+        }
+
         settingsSection(title: "Preview", subtitle: "This uses your current local account data.") {
           if store.accounts.isEmpty {
             Text("Add an account to preview the list.")
@@ -70,6 +110,7 @@ struct AccountListSettingsView: View {
                   if settings.density == .detailed, !settings.orderedVisibleFields.isEmpty {
                     Text(settings.summary(
                       for: account,
+                      resetTimeFormat: resetTimePreferences.format,
                       refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
                     ))
                     .font(.system(size: 11))
@@ -78,7 +119,10 @@ struct AccountListSettingsView: View {
                   }
                 }
                 if settings.density == .compact {
-                  Text(settings.summary(for: account))
+                  Text(settings.summary(
+                    for: account,
+                    resetTimeFormat: resetTimePreferences.format
+                  ))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -109,6 +153,58 @@ struct AccountListSettingsView: View {
       .frame(maxWidth: .infinity)
     }
     .frame(minWidth: 510, minHeight: 500)
+  }
+
+  private var resetTimePreview: some View {
+    Group {
+      if resetPreviewSurface == .detail {
+        UsageWindowRow(
+          title: "Weekly limit",
+          window: UsageWindow(usedPercent: 37, resetAt: resetPreviewDate),
+          resetTimeFormat: resetTimePreferences.format
+        )
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+      } else {
+        HStack(spacing: 8) {
+          Image(systemName: "person.crop.circle")
+            .frame(width: 22)
+          VStack(alignment: .leading, spacing: 3) {
+            Text("Sample account")
+              .font(.system(size: 12, weight: .medium))
+            Text(resetTimePreferences.format.text(for: resetPreviewDate))
+              .font(.system(size: 11).monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(
+          maxWidth: resetPreviewSurface == .sidebar ? 245 : .infinity,
+          alignment: .leading
+        )
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+      }
+    }
+    .accessibilityElement(children: .combine)
+  }
+
+  private var resetPreviewDate: Date {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .current
+    return calendar.date(from: DateComponents(
+      year: 2026,
+      month: 9,
+      day: 6,
+      hour: 15,
+      minute: 0
+    )) ?? .now
+  }
+
+  private enum ResetPreviewSurface: Hashable {
+    case menu
+    case sidebar
+    case detail
   }
 
   private func settingsSection<Content: View>(

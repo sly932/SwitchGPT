@@ -4,6 +4,7 @@ import SwitchGPTAppCore
 struct UsageWindowRow: View {
   let title: String
   let window: UsageWindow
+  let resetTimeFormat: ResetTimeFormat
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -36,7 +37,7 @@ struct UsageWindowRow: View {
       HStack {
         Text(String(window.usedPercent) + "% used")
         Spacer()
-        Text("Resets " + window.resetAt.formatted(date: .abbreviated, time: .shortened))
+        Text(resetTimeFormat.text(for: window.resetAt))
       }
       .font(.system(size: 12).monospacedDigit())
       .foregroundStyle(.secondary)

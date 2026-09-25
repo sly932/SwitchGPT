@@ -21,10 +21,16 @@ struct SwitchGPTApp: App {
   )
   @State private var updateStore = AppUpdateStore()
   @State private var listPreferences = AccountListPreferences()
+  @State private var resetTimePreferences = ResetTimePreferences()
 
   var body: some Scene {
     Window("switchgpt-sly", id: "dashboard") {
-      DashboardView(store: store, updateStore: updateStore, listPreferences: listPreferences)
+      DashboardView(
+        store: store,
+        updateStore: updateStore,
+        listPreferences: listPreferences,
+        resetTimePreferences: resetTimePreferences
+      )
     }
     .defaultSize(width: 820, height: 592)
     .windowStyle(.hiddenTitleBar)
@@ -33,12 +39,20 @@ struct SwitchGPTApp: App {
     }
 
     Window("Display Settings", id: "display-settings") {
-      AccountListSettingsView(preferences: listPreferences, store: store)
+      AccountListSettingsView(
+        preferences: listPreferences,
+        resetTimePreferences: resetTimePreferences,
+        store: store
+      )
     }
     .defaultSize(width: 590, height: 660)
 
     MenuBarExtra {
-      MenuBarView(store: store, listPreferences: listPreferences)
+      MenuBarView(
+        store: store,
+        listPreferences: listPreferences,
+        resetTimePreferences: resetTimePreferences
+      )
     } label: {
       MenuBarLabel(store: store)
     }

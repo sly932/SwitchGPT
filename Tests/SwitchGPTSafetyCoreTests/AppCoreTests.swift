@@ -345,6 +345,41 @@ final class AppCoreTests: XCTestCase {
   }
 
   @MainActor
+  func testResetTimeFormatUsesChosenStyleAndLocalTimeZone() throws {
+    let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-06T07:00:00Z"))
+    let shanghai = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+
+    XCTAssertEqual(
+      ResetTimeFormat.chinese.text(for: date, timeZone: shanghai),
+      "重置时间：2026年9月6日15:00"
+    )
+    XCTAssertEqual(
+      ResetTimeFormat.english.text(for: date, timeZone: shanghai),
+      "Reset at 2026 Sep 6 15:00"
+    )
+    XCTAssertEqual(
+      ResetTimeFormat.compact.text(for: date, timeZone: shanghai),
+      "2026 0906 15:00"
+    )
+  }
+
+  @MainActor
+  func testResetTimePreferenceDefaultsToChineseAndPersists() {
+    let suiteName = "switchgpt-reset-time-" + UUID().uuidString
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+      XCTFail("Expected isolated defaults")
+      return
+    }
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let preferences = ResetTimePreferences(userDefaults: defaults)
+    XCTAssertEqual(preferences.format, .chinese)
+
+    preferences.setFormat(.compact)
+    XCTAssertEqual(ResetTimePreferences(userDefaults: defaults).format, .compact)
+  }
+
+  @MainActor
   func testRefreshIfStaleSkipsFreshDataAndRefreshesExpiredData() async {
     let reader = CountingQuotaReader()
     let store = SwitchGPTAppStore(quotaReader: reader)
