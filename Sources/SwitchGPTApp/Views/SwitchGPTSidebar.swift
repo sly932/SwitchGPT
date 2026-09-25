@@ -272,70 +272,76 @@ private struct AccountSidebarRow: View {
   @State private var isHovered = false
 
   var body: some View {
-    HStack(spacing: 10) {
-      Image(systemName: account.symbolName)
-        .font(.system(size: 12, weight: .medium))
-        .frame(width: 26, height: 26)
-        .background(ChatGPTStyle.subtleFill, in: Circle())
+    let otherDetails = settings.summary(
+      for: account,
+      resetTimeFormat: resetTimeFormat,
+      refreshFailed: refreshFailed,
+      excludingWeeklyReset: true
+    )
+    let resetText = settings.weeklyResetText(for: account, resetTimeFormat: resetTimeFormat)
 
-      VStack(alignment: .leading, spacing: 1) {
-        Text(account.accountLabel)
-          .font(.system(size: settings.density == .compact ? 12 : 14, weight: .medium))
-          .lineLimit(1)
-          .truncationMode(.middle)
-          .help(account.accountLabel)
-        if settings.density == .detailed, !settings.orderedVisibleFields.isEmpty {
-          Text(settings.summary(
-            for: account,
-            resetTimeFormat: resetTimeFormat,
-            refreshFailed: refreshFailed
-          ))
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 10) {
+        Image(systemName: account.symbolName)
+          .font(.system(size: 12, weight: .medium))
+          .frame(width: 26, height: 26)
+          .background(ChatGPTStyle.subtleFill, in: Circle())
+
+        VStack(alignment: .leading, spacing: 1) {
+          Text(account.accountLabel)
+            .font(.system(size: settings.density == .compact ? 12 : 14, weight: .medium))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(account.accountLabel)
+          if settings.density == .detailed, !otherDetails.isEmpty {
+            Text(otherDetails)
+              .font(.system(size: 11).monospacedDigit())
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .help(otherDetails)
+          }
+        }
+
+        if settings.density == .compact, !otherDetails.isEmpty {
+          Text(otherDetails)
             .font(.system(size: 11).monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .help(settings.summary(
-              for: account,
-              resetTimeFormat: resetTimeFormat,
-              refreshFailed: refreshFailed
-            ))
+            .help(otherDetails)
+        }
+
+        Spacer(minLength: 4)
+
+        if refreshFailed {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(ChatGPTStyle.warningOrange)
+            .help("Refresh failed; showing previous usage")
+            .accessibilityLabel("Refresh failed; showing previous usage")
+        }
+
+        if isCurrent {
+          Image(systemName: "checkmark")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(ChatGPTStyle.successGreen)
+            .accessibilityLabel("Current account")
         }
       }
+      .padding(.horizontal, 10)
+      .frame(height: settings.density == .compact ? 34 : 46)
 
-      if settings.density == .compact, !settings.orderedVisibleFields.isEmpty {
-        Text(settings.summary(
-          for: account,
-          resetTimeFormat: resetTimeFormat,
-          refreshFailed: refreshFailed
-        ))
+      if let resetText {
+        Text(resetText)
           .font(.system(size: 11).monospacedDigit())
           .foregroundStyle(.secondary)
           .lineLimit(1)
-          .help(settings.summary(
-            for: account,
-            resetTimeFormat: resetTimeFormat,
-            refreshFailed: refreshFailed
-          ))
-      }
-
-      Spacer(minLength: 4)
-
-      if refreshFailed {
-        Image(systemName: "exclamationmark.triangle.fill")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(ChatGPTStyle.warningOrange)
-          .help("Refresh failed; showing previous usage")
-          .accessibilityLabel("Refresh failed; showing previous usage")
-      }
-
-      if isCurrent {
-        Image(systemName: "checkmark")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(ChatGPTStyle.successGreen)
-          .accessibilityLabel("Current account")
+          .minimumScaleFactor(0.85)
+          .help(resetText)
+          .padding(.horizontal, 10)
+          .frame(height: 20)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
-    .padding(.horizontal, 10)
-    .frame(height: settings.density == .compact ? 34 : 46)
     .background(
       isSelected ? ChatGPTStyle.hoverFill : (isHovered ? ChatGPTStyle.subtleFill : Color.clear),
       in: RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)

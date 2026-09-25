@@ -114,37 +114,48 @@ struct AccountListSettingsView: View {
               .foregroundStyle(.secondary)
           } else {
             ForEach(settings.orderedAccounts(store.accounts)) { account in
-              HStack(spacing: 8) {
-                Image(systemName: account.symbolName)
-                  .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(account.accountLabel)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                  if settings.density == .detailed, !settings.orderedVisibleFields.isEmpty {
-                    Text(settings.summary(
-                      for: account,
-                      resetTimeFormat: resetTimePreferences.format,
-                      refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
-                    ))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+              let otherDetails = settings.summary(
+                for: account,
+                resetTimeFormat: resetTimePreferences.format,
+                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
+                excludingWeeklyReset: true
+              )
+              let resetText = settings.weeklyResetText(
+                for: account,
+                resetTimeFormat: resetTimePreferences.format
+              )
+              VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                  Image(systemName: account.symbolName)
+                    .frame(width: 18)
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(account.accountLabel)
+                      .font(.system(size: 12, weight: .medium))
+                      .lineLimit(1)
+                    if settings.density == .detailed, !otherDetails.isEmpty {
+                      Text(otherDetails)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    }
+                  }
+                  if settings.density == .compact, !otherDetails.isEmpty {
+                    Text(otherDetails)
+                      .font(.system(size: 11))
+                      .foregroundStyle(.secondary)
+                      .lineLimit(1)
+                  }
+                  Spacer(minLength: 0)
+                  if store.currentAccountID == account.id {
+                    Image(systemName: "checkmark")
+                      .foregroundStyle(ChatGPTStyle.successGreen)
                   }
                 }
-                if settings.density == .compact {
-                  Text(settings.summary(
-                    for: account,
-                    resetTimeFormat: resetTimePreferences.format
-                  ))
+                if let resetText {
+                  Text(resetText)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if store.currentAccountID == account.id {
-                  Image(systemName: "checkmark")
-                    .foregroundStyle(ChatGPTStyle.successGreen)
                 }
               }
               .padding(.vertical, 4)
