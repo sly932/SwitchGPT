@@ -36,6 +36,7 @@ struct DashboardDetailView: View {
             )
 
             TokenActivityCardView(account: account)
+              .id(account.id)
 
             if account.usage.resetCreditsWereLoaded {
               ResetCreditsCardView(summary: account.usage.resetCredits)
