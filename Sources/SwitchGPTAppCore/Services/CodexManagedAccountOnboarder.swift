@@ -34,13 +34,11 @@ public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
   public let accountsRootURL: URL
 
   public init(
-    codexBinaryURL: URL = URL(
-      fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"
-    ),
+    codexBinaryURL: URL? = nil,
     timeout: TimeInterval = 10 * 60,
     accountsRootURL: URL? = nil
   ) {
-    self.codexBinaryURL = codexBinaryURL.standardizedFileURL
+    self.codexBinaryURL = (codexBinaryURL ?? BundledCodexBinaryLocator.resolve()).standardizedFileURL
     self.timeout = timeout
     if let accountsRootURL {
       self.accountsRootURL = accountsRootURL.standardizedFileURL

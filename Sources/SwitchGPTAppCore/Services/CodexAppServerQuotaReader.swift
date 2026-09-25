@@ -5,11 +5,10 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
   public let timeout: Duration
 
   public init(
-    codexBinaryURL: URL = URL(
-      fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
+    codexBinaryURL: URL? = nil,
     timeout: Duration = .seconds(20)
   ) {
-    self.codexBinaryURL = codexBinaryURL
+    self.codexBinaryURL = codexBinaryURL ?? BundledCodexBinaryLocator.resolve()
     self.timeout = timeout
   }
 

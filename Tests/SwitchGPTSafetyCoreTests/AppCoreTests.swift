@@ -3,6 +3,26 @@ import XCTest
 @testable import SwitchGPTAppCore
 
 final class AppCoreTests: XCTestCase {
+  func testBundledCodexBinaryLocatorPrefersCurrentAndFallsBackToLegacy() throws {
+    let resources = FileManager.default.temporaryDirectory
+      .appendingPathComponent("switchgpt-codex-binary-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: resources) }
+    try FileManager.default.createDirectory(
+      at: resources.appendingPathComponent("codex-cli/bin"),
+      withIntermediateDirectories: true
+    )
+
+    let current = resources.appendingPathComponent("codex-cli/bin/codex")
+    let legacy = resources.appendingPathComponent("codex")
+    try Data().write(to: legacy)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: legacy.path)
+    XCTAssertEqual(BundledCodexBinaryLocator.resolve(resourcesURL: resources), legacy)
+
+    try Data().write(to: current)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: current.path)
+    XCTAssertEqual(BundledCodexBinaryLocator.resolve(resourcesURL: resources), current)
+  }
+
   func testRealSwitchReceiptStorePersistsMetadataOnlyEvidenceWithoutOverwrite() throws {
     let root = FileManager.default.temporaryDirectory
       .appendingPathComponent("switchgpt-receipt-store-" + UUID().uuidString)
