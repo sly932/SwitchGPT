@@ -25,13 +25,13 @@ struct SwitchGPTSidebar: View {
 
         if store.accountOnboardingActivity.isInProgress {
           AccountOnboardingStatusRow(
-            message: "Complete sign-in in your browser",
+            message: L10n.string("Complete sign-in in your browser"),
             isFailure: false,
             onDismiss: nil
           )
         } else if let message = store.accountOnboardingActivity.failureMessage {
           AccountOnboardingStatusRow(
-            message: message,
+            message: L10n.string(message),
             isFailure: true,
             onDismiss: store.resetAccountOnboardingActivity
           )
@@ -140,7 +140,7 @@ struct AppUpdateSidebarRow: View {
             Text("Update available")
               .font(.system(size: 13, weight: .medium))
               .lineLimit(1)
-            Text("SwitchGPT \(update.version.displayValue)")
+            Text(L10n.format("SwitchGPT %@", update.version.displayValue))
               .font(.system(size: 11))
               .foregroundStyle(.secondary)
               .lineLimit(1)
@@ -205,7 +205,7 @@ private struct AccountOnboardingStatusRow: View {
           .tint(ChatGPTStyle.actionBlue)
       }
 
-      Text(message)
+      Text(L10n.string(message))
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
         .lineLimit(2)
@@ -241,7 +241,7 @@ private struct SidebarActionRow: View {
           .font(.system(size: 13, weight: .medium))
           .foregroundStyle(ChatGPTStyle.actionBlue)
           .frame(width: 20)
-        Text(title)
+        Text(L10n.string(title))
           .font(.system(size: 14))
         Spacer()
       }

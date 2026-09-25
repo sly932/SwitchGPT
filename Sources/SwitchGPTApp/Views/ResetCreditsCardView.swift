@@ -53,7 +53,7 @@ struct ResetCreditsCardView: View {
       .buttonStyle(.plain)
       .accessibilityLabel(titleText)
       .accessibilityValue(secondaryText)
-      .accessibilityHint(isExpanded ? "Collapses expiration details" : "Expands expiration details")
+      .accessibilityHint(L10n.string(isExpanded ? "Collapses expiration details" : "Expands expiration details"))
     } else {
       headerContent
         .accessibilityElement(children: .combine)
@@ -117,7 +117,7 @@ struct ResetCreditsCardView: View {
           showsAllCredits = true
         } label: {
           HStack {
-            Text("View all \(summary.availableCount) reset credits")
+            Text(L10n.format("View all %d reset credits", summary.availableCount))
             Spacer()
             Image(systemName: "chevron.right")
               .font(.system(size: 11, weight: .semibold))
@@ -129,7 +129,7 @@ struct ResetCreditsCardView: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the complete expiration list")
+        .accessibilityHint(L10n.string("Opens the complete expiration list"))
       }
     }
   }
@@ -177,34 +177,33 @@ struct ResetCreditsCardView: View {
   }
 
   private var titleText: String {
-    guard let summary else { return "Usage limit resets" }
+    guard let summary else { return L10n.string("Usage limit resets") }
     if summary.availableCount == 1 {
-      return "1 usage limit reset"
+      return L10n.string("1 usage limit reset")
     }
-    return "\(summary.availableCount) usage limit resets"
+    return L10n.format("%d usage limit resets", summary.availableCount)
   }
 
   private var secondaryText: String {
-    guard let summary else { return "Availability unavailable" }
-    guard summary.availableCount > 0 else { return "No reset credits available" }
+    guard let summary else { return L10n.string("Availability unavailable") }
+    guard summary.availableCount > 0 else { return L10n.string("No reset credits available") }
     if let nearest = summary.nearestKnownExpiry {
-      let prefix = summary.detailsAreComplete ? "Nearest expiry " : "Nearest known expiry "
+      let prefix = L10n.string(summary.detailsAreComplete ? "Nearest expiry " : "Nearest known expiry ")
       return prefix + resetCreditExpirationText(nearest)
     }
     if summary.knownDetailCount > 0, summary.missingDetailCount == 0 {
-      return "No expiration date"
+      return L10n.string("No expiration date")
     }
-    return "Expiry details unavailable"
+    return L10n.string("Expiry details unavailable")
   }
 
   private func expirationAccessibilityLabel(
     _ group: RateLimitResetCreditExpirationGroup
   ) -> String {
-    let creditWord = group.count == 1 ? "credit" : "credits"
     if let expiresAt = group.expiresAt {
-      return "\(group.count) reset \(creditWord) expire \(resetCreditExpirationText(expiresAt))"
+      return L10n.format("%d reset credits expire %@", group.count, resetCreditExpirationText(expiresAt))
     }
-    return "\(group.count) reset \(creditWord) have no expiration date"
+    return L10n.format("%d reset credits have no expiration date", group.count)
   }
 }
 
@@ -220,7 +219,7 @@ private struct ResetCreditsDetailSheet: View {
         VStack(alignment: .leading, spacing: 3) {
           Text("Usage limit resets")
             .font(.system(size: 18, weight: .semibold))
-          Text("\(summary.availableCount) available")
+          Text(L10n.format("%d available", summary.availableCount))
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
         }
@@ -280,7 +279,7 @@ private struct ResetCreditsDetailSheet: View {
       VStack(alignment: .leading, spacing: 3) {
         Text(resetCreditExpirationText(group.expiresAt))
           .font(.system(size: 14, weight: .medium))
-        Text(group.count == 1 ? "1 reset credit" : "\(group.count) reset credits")
+        Text(group.count == 1 ? L10n.string("1 reset credit") : L10n.format("%d reset credits", group.count))
           .font(.system(size: 12))
           .foregroundStyle(.secondary)
       }
@@ -295,13 +294,13 @@ private struct ResetCreditsDetailSheet: View {
 }
 
 private func resetCreditExpirationText(_ date: Date?) -> String {
-  guard let date else { return "No expiration" }
-  return date.formatted(date: .abbreviated, time: .shortened)
+  guard let date else { return L10n.string("No expiration") }
+  return L10n.date(date, date: .medium, time: .short)
 }
 
 private func unavailableDetailsText(_ count: Int) -> String {
   if count == 1 {
-    return "1 expiration detail unavailable"
+    return L10n.string("1 expiration detail unavailable")
   }
-  return "\(count) expiration details unavailable"
+  return L10n.format("%d expiration details unavailable", count)
 }
