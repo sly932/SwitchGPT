@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>SwitchGPT</string>
+	<string>switchgpt-sly</string>
 	<key>CFBundleExecutable</key>
-	<string>SwitchGPT</string>
+	<string>switchgpt-sly</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.kunpeng.SwitchGPT</string>
+	<string>ai.shenliyuan.switchgpt-sly</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>SwitchGPT</string>
+	<string>switchgpt-sly</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

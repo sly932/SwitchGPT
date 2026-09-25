@@ -23,7 +23,7 @@ struct SwitchGPTApp: App {
   @State private var listPreferences = AccountListPreferences()
 
   var body: some Scene {
-    Window("SwitchGPT", id: "dashboard") {
+    Window("switchgpt-sly", id: "dashboard") {
       DashboardView(store: store, updateStore: updateStore, listPreferences: listPreferences)
     }
     .defaultSize(width: 820, height: 592)

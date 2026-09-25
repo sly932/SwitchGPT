@@ -3,8 +3,8 @@
 set -euo pipefail
 
 mode="${1:-run}"
-app_name="SwitchGPT"
-bundle_id="com.kunpeng.SwitchGPT"
+app_name="switchgpt-sly"
+bundle_id="ai.shenliyuan.switchgpt-sly"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dev_bundle_directory="$repository_root/.build/dev-app"
 app_bundle="$dev_bundle_directory/$app_name.app"
@@ -103,8 +103,19 @@ case "$mode" in
     open_app
     verify_process
     ;;
+  --install|install)
+    user_app_directory="$HOME/Applications"
+    mkdir -p "$user_app_directory"
+    installed_app="$user_app_directory/$app_name.app"
+    if [[ -e "$installed_app" ]]; then
+      echo "Existing app left untouched: $installed_app" >&2
+      exit 1
+    fi
+    /usr/bin/ditto "$app_bundle" "$installed_app"
+    echo "Installed: $installed_app"
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--install]" >&2
     exit 2
     ;;
 esac

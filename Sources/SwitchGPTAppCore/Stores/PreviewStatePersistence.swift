@@ -92,7 +92,7 @@ public struct PreviewStateFileStore: PreviewStatePersisting, Sendable {
     return PreviewStateFileStore(
       fileURL:
         applicationSupport
-        .appendingPathComponent("SwitchGPT", isDirectory: true)
+        .appendingPathComponent("SwitchGPT-sly", isDirectory: true)
         .appendingPathComponent("preview-state.json")
     )
   }

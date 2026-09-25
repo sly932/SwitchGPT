@@ -68,7 +68,7 @@ enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
 }
 
 enum ExperimentalRealSwitchCoordinator {
-  private static let hostBundleIdentifier = "com.kunpeng.SwitchGPT"
+  private static let hostBundleIdentifier = "ai.shenliyuan.switchgpt-sly"
   private static let targetBundleIdentifier = "com.openai.codex"
   private static let targetTeamIdentifier = "2DC432GLL2"
   private static let failureInjectionInfoKey = "SwitchGPTInjectTargetVerificationFailureOnce"
@@ -331,7 +331,7 @@ enum ExperimentalRealSwitchCoordinator {
     else {
       throw ExperimentalRealSwitchError.insecureStorage
     }
-    let appRoot = applicationSupport.appendingPathComponent("SwitchGPT", isDirectory: true)
+    let appRoot = applicationSupport.appendingPathComponent("SwitchGPT-sly", isDirectory: true)
     let transactionsRoot = appRoot.appendingPathComponent("Transactions", isDirectory: true)
     do {
       try preparePrivateDirectory(appRoot)

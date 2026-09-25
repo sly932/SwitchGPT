@@ -27,7 +27,7 @@ enum RecoverySupervisorCLI {
       ).first ?? FileManager.default.temporaryDirectory
     let transactionsRoot =
       applicationSupport
-      .appendingPathComponent("SwitchGPT", isDirectory: true)
+      .appendingPathComponent("SwitchGPT-sly", isDirectory: true)
       .appendingPathComponent("Transactions", isDirectory: true)
     let candidateDirectory = URL(fileURLWithPath: arguments[1], isDirectory: true)
       .standardizedFileURL

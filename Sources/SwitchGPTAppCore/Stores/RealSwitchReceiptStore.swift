@@ -82,7 +82,7 @@ public struct RealSwitchReceiptStore: Sendable {
     return RealSwitchReceiptStore(
       directoryURL:
         applicationSupport
-        .appendingPathComponent("SwitchGPT", isDirectory: true)
+        .appendingPathComponent("SwitchGPT-sly", isDirectory: true)
         .appendingPathComponent("SwitchReceipts", isDirectory: true)
     )
   }
