@@ -48,9 +48,11 @@ def main() -> None:
         raise FileExistsError("The sly data directory already exists; no data was overwritten")
     require_private_directory(source)
     require_private_directory(source / "Accounts")
-    require_private_directory(source / "Transactions")
-    if any((source / "Transactions").iterdir()):
-        raise ValueError("An unfinished switch transaction exists; copy was stopped")
+    transactions = source / "Transactions"
+    if transactions.exists() or transactions.is_symlink():
+        require_private_directory(transactions)
+        if any(transactions.iterdir()):
+            raise ValueError("An unfinished switch transaction exists; copy was stopped")
 
     state_file = source / "preview-state.json"
     state_details = state_file.lstat()
