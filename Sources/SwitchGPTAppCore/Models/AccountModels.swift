@@ -224,6 +224,8 @@ public struct AccountRecord: Codable, Equatable, Hashable, Identifiable, Sendabl
   public let source: AccountSource
   public let identityHash: String?
   public var usage: AccountUsage
+  /// The last time this account's usage snapshot was read successfully.
+  public var usageRefreshedAt: Date?
 
   public init(
     id: AccountID,
@@ -235,7 +237,8 @@ public struct AccountRecord: Codable, Equatable, Hashable, Identifiable, Sendabl
     accent: AccountAccent,
     usage: AccountUsage,
     source: AccountSource = .mock,
-    identityHash: String? = nil
+    identityHash: String? = nil,
+    usageRefreshedAt: Date? = nil
   ) {
     self.id = id
     self.displayName = displayName
@@ -247,6 +250,7 @@ public struct AccountRecord: Codable, Equatable, Hashable, Identifiable, Sendabl
     self.source = source
     self.identityHash = identityHash
     self.usage = usage
+    self.usageRefreshedAt = usageRefreshedAt
   }
 
   public var accountLabel: String {

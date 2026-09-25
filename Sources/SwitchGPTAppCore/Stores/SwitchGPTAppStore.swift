@@ -182,7 +182,8 @@ public final class SwitchGPTAppStore {
         accent: AccountAccent.allCases[accounts.count % AccountAccent.allCases.count],
         usage: probe.usage,
         source: .codexHome(path: path),
-        identityHash: probe.identityHash
+        identityHash: probe.identityHash,
+        usageRefreshedAt: Date()
       )
       accounts.append(account)
       lastRefreshedAt = Date()
@@ -245,7 +246,8 @@ public final class SwitchGPTAppStore {
         accent: AccountAccent.allCases[accounts.count % AccountAccent.allCases.count],
         usage: probe.usage,
         source: .codexHome(path: path),
-        identityHash: probe.identityHash
+        identityHash: probe.identityHash,
+        usageRefreshedAt: Date()
       )
       accounts.append(account)
       lastRefreshedAt = Date()
@@ -285,7 +287,8 @@ public final class SwitchGPTAppStore {
         accent: .orange,
         usage: probe.usage,
         source: .codexHome(path: activeHome),
-        identityHash: probe.identityHash
+        identityHash: probe.identityHash,
+        usageRefreshedAt: Date()
       )
       accounts = [account]
       currentAccountID = account.id
@@ -342,7 +345,8 @@ public final class SwitchGPTAppStore {
         accent: previous.accent,
         usage: preservedProbe.usage,
         source: .codexHome(path: path),
-        identityHash: previous.identityHash
+        identityHash: previous.identityHash,
+        usageRefreshedAt: Date()
       )
       lastRefreshedAt = Date()
       if persistState() {
@@ -380,7 +384,8 @@ public final class SwitchGPTAppStore {
         accent: previous.accent,
         usage: activeProbe.usage,
         source: previous.source,
-        identityHash: previous.identityHash
+        identityHash: previous.identityHash,
+        usageRefreshedAt: Date()
       )
       currentAccountID = previous.id
       lastRefreshedAt = Date()
@@ -500,7 +505,8 @@ public final class SwitchGPTAppStore {
           accent: account.accent,
           usage: snapshot.usage,
           source: account.source,
-          identityHash: account.identityHash
+          identityHash: account.identityHash,
+          usageRefreshedAt: Date()
         )
       }
       return updated
@@ -556,7 +562,8 @@ public final class SwitchGPTAppStore {
         accent: previous.accent,
         usage: snapshot.usage,
         source: previous.source,
-        identityHash: previous.identityHash
+        identityHash: previous.identityHash,
+        usageRefreshedAt: Date()
       )
       lastRefreshedAt = Date()
       if persistState() {

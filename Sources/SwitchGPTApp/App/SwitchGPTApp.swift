@@ -20,10 +20,11 @@ struct SwitchGPTApp: App {
     initialAccounts: []
   )
   @State private var updateStore = AppUpdateStore()
+  @State private var listPreferences = AccountListPreferences()
 
   var body: some Scene {
     Window("SwitchGPT", id: "dashboard") {
-      DashboardView(store: store, updateStore: updateStore)
+      DashboardView(store: store, updateStore: updateStore, listPreferences: listPreferences)
     }
     .defaultSize(width: 820, height: 592)
     .windowStyle(.hiddenTitleBar)
@@ -31,8 +32,13 @@ struct SwitchGPTApp: App {
       SwitchGPTCommands(store: store, updateStore: updateStore)
     }
 
+    Window("Display Settings", id: "display-settings") {
+      AccountListSettingsView(preferences: listPreferences, store: store)
+    }
+    .defaultSize(width: 590, height: 660)
+
     MenuBarExtra {
-      MenuBarView(store: store)
+      MenuBarView(store: store, listPreferences: listPreferences)
     } label: {
       MenuBarLabel(store: store)
     }

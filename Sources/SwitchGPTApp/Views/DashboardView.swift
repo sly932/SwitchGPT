@@ -4,6 +4,7 @@ import SwitchGPTAppCore
 struct DashboardView: View {
   let store: SwitchGPTAppStore
   let updateStore: AppUpdateStore
+  let listPreferences: AccountListPreferences
 
   @State private var pendingSwitch: AccountRecord?
   @State private var pendingRealSwitch: RealSwitchPlan?
@@ -53,6 +54,7 @@ struct DashboardView: View {
       SwitchGPTSidebar(
         store: store,
         updateStore: updateStore,
+        listPreferences: listPreferences,
         selection: $selectedAccountID,
         topInset: windowTopInset,
         onAddOrCancel: addOrCancelAccountSignIn
