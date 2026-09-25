@@ -22,6 +22,10 @@ struct SwitchGPTCommands: Commands {
       }
       .keyboardShortcut("0")
 
+      Button("Customize Display…") {
+        openWindow(id: "display-settings")
+      }
+
       Button("Refresh Usage") {
         Task { await store.refresh() }
       }

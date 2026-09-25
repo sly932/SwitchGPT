@@ -4,12 +4,14 @@ import SwitchGPTAppCore
 struct SwitchGPTSidebar: View {
   let store: SwitchGPTAppStore
   let updateStore: AppUpdateStore
+  let listPreferences: AccountListPreferences
   @Binding var selection: AccountID?
   let topInset: CGFloat
   let onAddOrCancel: () -> Void
 
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.openURL) private var openURL
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     VStack(spacing: 0) {
@@ -43,6 +45,16 @@ struct SwitchGPTSidebar: View {
           Text(String(store.accounts.count))
             .font(.system(size: 12).monospacedDigit())
             .foregroundStyle(.tertiary)
+          Button {
+            openWindow(id: "display-settings")
+          } label: {
+            Image(systemName: "slider.horizontal.3")
+              .font(.system(size: 11))
+              .frame(width: 24, height: 24)
+          }
+          .buttonStyle(.plain)
+          .help("Customize account list")
+          .accessibilityLabel("Customize account list")
         }
         .padding(.horizontal, 10)
         .padding(.top, 16)
@@ -52,7 +64,7 @@ struct SwitchGPTSidebar: View {
 
       ScrollView {
         LazyVStack(spacing: 2) {
-          ForEach(store.accounts) { account in
+          ForEach(listPreferences.sidebar.orderedAccounts(store.accounts)) { account in
             Button {
               selection = account.id
             } label: {
@@ -60,7 +72,8 @@ struct SwitchGPTSidebar: View {
                 account: account,
                 isCurrent: store.currentAccountID.map { $0 == account.id } ?? false,
                 isSelected: selection == account.id,
-                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
+                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
+                settings: listPreferences.sidebar
               )
             }
             .buttonStyle(.plain)
@@ -251,6 +264,7 @@ private struct AccountSidebarRow: View {
   let isCurrent: Bool
   let isSelected: Bool
   let refreshFailed: Bool
+  let settings: AccountListSettings
 
   @State private var isHovered = false
 
@@ -263,12 +277,22 @@ private struct AccountSidebarRow: View {
 
       VStack(alignment: .leading, spacing: 1) {
         Text(account.accountLabel)
-          .font(.system(size: 14, weight: .medium))
+          .font(.system(size: settings.density == .compact ? 12 : 14, weight: .medium))
           .lineLimit(1)
           .truncationMode(.middle)
           .help(account.accountLabel)
-        Text(account.planName + " · " + quotaSummaryText(for: account))
-          .font(.system(size: 12).monospacedDigit())
+        if settings.density == .detailed, !settings.orderedVisibleFields.isEmpty {
+          Text(settings.summary(for: account, refreshFailed: refreshFailed))
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .help(settings.summary(for: account, refreshFailed: refreshFailed))
+        }
+      }
+
+      if settings.density == .compact, !settings.orderedVisibleFields.isEmpty {
+        Text(settings.summary(for: account, refreshFailed: refreshFailed))
+          .font(.system(size: 11).monospacedDigit())
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
@@ -291,7 +315,7 @@ private struct AccountSidebarRow: View {
       }
     }
     .padding(.horizontal, 10)
-    .frame(height: 42)
+    .frame(height: settings.density == .compact ? 34 : 46)
     .background(
       isSelected ? ChatGPTStyle.hoverFill : (isHovered ? ChatGPTStyle.subtleFill : Color.clear),
       in: RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)

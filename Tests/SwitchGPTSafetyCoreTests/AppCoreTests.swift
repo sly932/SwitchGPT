@@ -194,9 +194,11 @@ final class AppCoreTests: XCTestCase {
 
   @MainActor
   func testRefreshKeepsSuccessfulAccountsWhenOneAccountFails() async throws {
-    let initialAccounts = MockAccountCatalog.accounts(
+    var initialAccounts = MockAccountCatalog.accounts(
       now: Date(timeIntervalSince1970: 1_700_000_000)
     )
+    let previousRefresh = Date(timeIntervalSince1970: 1_700_000_100)
+    initialAccounts[1].usageRefreshedAt = previousRefresh
     let originalFailedUsage = initialAccounts[1].usage
     let refreshedUsage = AccountUsage(
       weekly: UsageWindow(usedPercent: 88, resetAt: Date(timeIntervalSince1970: 1_900_000_000))
@@ -214,7 +216,9 @@ final class AppCoreTests: XCTestCase {
     await store.refresh()
 
     XCTAssertEqual(store.accounts[0].usage, refreshedUsage)
+    XCTAssertNotNil(store.accounts[0].usageRefreshedAt)
     XCTAssertEqual(store.accounts[1].usage, originalFailedUsage)
+    XCTAssertEqual(store.accounts[1].usageRefreshedAt, previousRefresh)
     XCTAssertEqual(store.quotaRefreshFailedAccountIDs, [initialAccounts[1].id])
     XCTAssertNil(store.lastRefreshedAt)
     XCTAssertEqual(
@@ -263,6 +267,33 @@ final class AppCoreTests: XCTestCase {
     XCTAssertEqual(store.accounts.first { $0.id == AccountID("personal") }?.usage, untouchedUsage)
     XCTAssertEqual(store.accounts.first { $0.id == AccountID("work") }?.usage, refreshedUsage)
     XCTAssertEqual(store.accounts.first { $0.id == AccountID("work") }?.planName, "Free")
+    XCTAssertNotNil(store.accounts.first { $0.id == AccountID("work") }?.usageRefreshedAt)
+    XCTAssertNil(store.accounts.first { $0.id == AccountID("personal") }?.usageRefreshedAt)
+  }
+
+  @MainActor
+  func testAccountListPreferencesPersistIndependentFieldAndAccountOrder() {
+    let suiteName = "switchgpt-list-settings-" + UUID().uuidString
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+      XCTFail("Expected isolated defaults")
+      return
+    }
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let accounts = MockAccountCatalog.accounts()
+    let preferences = AccountListPreferences(userDefaults: defaults)
+
+    preferences.moveField(.lastUpdated, relativeTo: .plan, after: false, on: .menu)
+    preferences.setVisible(false, field: .plan, on: .menu)
+    preferences.moveAccount(accounts[1].id, relativeTo: accounts[0].id, after: false,
+                            accounts: accounts, on: .menu)
+    preferences.setDensity(.compact, on: .menu)
+
+    let restored = AccountListPreferences(userDefaults: defaults)
+    XCTAssertEqual(restored.menu.orderedVisibleFields.first, .lastUpdated)
+    XCTAssertFalse(restored.menu.visibleFields.contains(.plan))
+    XCTAssertEqual(restored.menu.orderedAccounts(accounts).map(\.id), [accounts[1].id, accounts[0].id])
+    XCTAssertEqual(restored.menu.density, .compact)
+    XCTAssertEqual(restored.sidebar, .standard)
   }
 
   @MainActor
@@ -670,7 +701,8 @@ final class AppCoreTests: XCTestCase {
       accent: .orange,
       usage: accounts[0].usage,
       source: .codexHome(path: "/private/outside-repository"),
-      identityHash: "a1b2c3d4e5f6"
+      identityHash: "a1b2c3d4e5f6",
+      usageRefreshedAt: Date(timeIntervalSince1970: 1_700_000_123)
     )
     let readOnlyState = PreviewState(
       accounts: [realAccount],

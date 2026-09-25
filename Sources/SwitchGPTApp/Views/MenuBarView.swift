@@ -48,6 +48,7 @@ struct MenuBarLabel: View {
 
 struct MenuBarView: View {
   let store: SwitchGPTAppStore
+  let listPreferences: AccountListPreferences
 
   @Environment(\.openWindow) private var openWindow
   @State private var hoveredAccountID: AccountID?
@@ -68,9 +69,17 @@ struct MenuBarView: View {
         .padding(.bottom, 6)
 
       VStack(alignment: .leading, spacing: 3) {
-        ForEach(store.accounts) { account in
+        ForEach(listPreferences.menu.orderedAccounts(store.accounts)) { account in
           accountButton(for: account)
         }
+      }
+
+      if let lastRefreshedAt = store.lastRefreshedAt {
+        Text("All accounts updated " + lastRefreshedAt.formatted(date: .abbreviated, time: .shortened))
+          .font(.system(size: 11))
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 8)
+          .padding(.top, 8)
       }
 
       if let menuActivityText {
@@ -90,6 +99,10 @@ struct MenuBarView: View {
         Task { await store.refresh() }
       }
       .disabled(store.activity.isBusy)
+
+      menuActionButton(title: "Customize Display…", systemImage: "slider.horizontal.3") {
+        openWindow(id: "display-settings")
+      }
 
       menuActionButton(title: "Quit SwitchGPT", systemImage: "power") {
         NSApplication.shared.terminate(nil)
@@ -133,14 +146,42 @@ struct MenuBarView: View {
         await switchFromMenu(to: account)
       }
     } label: {
-      Label {
-        Text(menuTitle(for: account))
-          .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-          .lineLimit(1)
-          .truncationMode(.middle)
-      } icon: {
+      HStack(spacing: 8) {
         Image(systemName: account.symbolName)
           .frame(width: 16)
+        if listPreferences.menu.density == .compact {
+          Text(account.compactAccountLabel())
+            .font(.system(size: 12, weight: isCurrent ? .semibold : .regular))
+            .lineLimit(1)
+          Text(listPreferences.menu.summary(
+            for: account,
+            refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
+          ))
+          .font(.system(size: 11))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        } else {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(account.accountLabel)
+              .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+              .lineLimit(1)
+              .truncationMode(.middle)
+            if !listPreferences.menu.orderedVisibleFields.isEmpty {
+              Text(listPreferences.menu.summary(
+                for: account,
+                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id)
+              ))
+              .font(.system(size: 11))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+            }
+          }
+        }
+        Spacer(minLength: 2)
+        if isCurrent {
+          Image(systemName: "checkmark")
+            .foregroundStyle(ChatGPTStyle.successGreen)
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
@@ -185,17 +226,6 @@ struct MenuBarView: View {
       return nil
     }
     return store.activity.message
-  }
-
-  private func menuTitle(for account: AccountRecord) -> String {
-    if store.currentAccountID.map({ $0 == account.id }) ?? false {
-      return
-        account.compactAccountLabel() + " · Current · " + account.planName + " · "
-        + quotaSummaryText(for: account)
-    }
-    return
-      account.compactAccountLabel() + " · " + account.planName + " · "
-      + quotaSummaryText(for: account)
   }
 
   private var menuActivityColor: Color {
