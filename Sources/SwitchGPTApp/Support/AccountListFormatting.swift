@@ -13,7 +13,11 @@ extension AccountDisplayField {
     }
   }
 
-  func text(for account: AccountRecord, refreshFailed: Bool = false) -> String {
+  func text(
+    for account: AccountRecord,
+    resetTimeFormat: ResetTimeFormat,
+    refreshFailed: Bool = false
+  ) -> String {
     switch self {
     case .plan:
       return account.planName
@@ -35,7 +39,7 @@ extension AccountDisplayField {
       let amount = formatter.string(from: NSDecimalNumber(decimal: balance)) ?? "—"
       return L10n.string("Credits US$") + amount
     case .weeklyReset:
-      return L10n.string("Resets ") + L10n.date(account.usage.weekly.resetAt, date: .medium, time: .short)
+      return resetTimeFormat.text(for: account.usage.weekly.resetAt)
     case .lastUpdated:
       guard let date = account.usageRefreshedAt else {
         return L10n.string(refreshFailed ? "Refresh failed · time unknown" : "Update time unknown")
@@ -49,8 +53,14 @@ extension AccountDisplayField {
 }
 
 extension AccountListSettings {
-  func summary(for account: AccountRecord, refreshFailed: Bool = false) -> String {
-    orderedVisibleFields.map { $0.text(for: account, refreshFailed: refreshFailed) }
+  func summary(
+    for account: AccountRecord,
+    resetTimeFormat: ResetTimeFormat,
+    refreshFailed: Bool = false
+  ) -> String {
+    orderedVisibleFields.map {
+      $0.text(for: account, resetTimeFormat: resetTimeFormat, refreshFailed: refreshFailed)
+    }
       .joined(separator: " · ")
   }
 }

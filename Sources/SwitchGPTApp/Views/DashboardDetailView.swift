@@ -6,6 +6,7 @@ struct DashboardDetailView: View {
   let account: AccountRecord?
   let isCurrent: Bool
   let allowsCurrentAction: Bool
+  let resetTimeFormat: ResetTimeFormat
   let onPreviewSwitch: () -> Void
   let onRemove: (() -> Void)?
 
@@ -30,6 +31,7 @@ struct DashboardDetailView: View {
               account: account,
               isCurrent: isCurrent,
               allowsCurrentAction: allowsCurrentAction,
+              resetTimeFormat: resetTimeFormat,
               isBusy: store.activity.isBusy,
               onPreviewSwitch: onPreviewSwitch,
               onRemove: onRemove

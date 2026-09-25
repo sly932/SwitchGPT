@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SwitchGPT · 重置时间格式原型</title>
+  <style>
+    :root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;color:#17191b;background:#e9edf0;font-size:13px}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:28px}
+    .window{width:min(590px,100%);background:#fff;border:1px solid #d7dadd;border-radius:13px;box-shadow:0 22px 65px #22333f24;overflow:hidden}
+    .titlebar{height:42px;background:#f8f9fa;border-bottom:1px solid #e5e8ea;display:flex;align-items:center;padding:0 16px;position:relative}
+    .lights{display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%;display:block;background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+    .titlebar strong{position:absolute;left:0;right:0;text-align:center;font-size:12px;font-weight:600;pointer-events:none}
+    .content{padding:22px;max-height:min(740px,calc(100vh - 130px));overflow:auto}
+    h1{font-size:22px;letter-spacing:-.5px;margin:0 0 4px}p{margin:0;color:#777d84;font-size:12px;line-height:1.45}
+    .segment{display:flex;background:#eef0f2;border-radius:8px;padding:3px;margin:20px 0 18px}.segment button{flex:1;border:0;background:transparent;border-radius:6px;padding:7px;color:#58616a;font:inherit;cursor:pointer}.segment button.active{background:white;color:#1d252b;box-shadow:0 1px 4px #0002}
+    .card{background:#f7f8f9;border:1px solid #eef0f2;border-radius:12px;padding:15px;margin-bottom:12px}
+    h2{font-size:14px;margin:0 0 4px}.stub{display:flex;gap:12px;align-items:center;margin-top:12px;color:#505962}.stub span{flex:1;background:#fff;border:1px solid #e5e8ea;border-radius:7px;padding:9px 11px}.stub b{color:#0a8401;font-weight:500}
+    .options{display:grid;gap:7px;margin-top:14px}.option{width:100%;display:flex;align-items:center;gap:11px;border:1px solid #dfe3e6;border-radius:9px;background:#fff;padding:12px;text-align:left;cursor:pointer;color:inherit;font:inherit}.option:hover{border-color:#98a8b1;background:#fcfdfd}.option.selected{border:1.5px solid #0a84ff;background:#f3f9ff}.dot{width:16px;height:16px;border:1.5px solid #9099a3;border-radius:50%;display:grid;place-items:center;flex:none}.selected .dot{border-color:#0a84ff}.selected .dot:after{content:"";width:8px;height:8px;background:#0a84ff;border-radius:50%}.option-content{display:grid;gap:3px}.option strong{font-size:12px;font-weight:600}.option small{font-size:11px;color:#6b747c;font-variant-numeric:tabular-nums}
+    .preview{margin-top:15px;border-top:1px solid #e2e6e9;padding-top:13px}.preview-label{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;color:#606971;font-size:11px}.preview-label b{color:#414950}.preview-switch{display:flex;gap:4px;margin:0 0 11px}.preview-switch button{border:1px solid #dfe3e6;background:white;color:#606a72;border-radius:7px;padding:7px 9px;cursor:pointer;font:inherit;font-size:11px}.preview-switch button.active{background:#e8f3ff;border-color:#0a84ff;color:#1266b2}.sample-view[hidden]{display:none}.sample-list{background:white;border:1px solid #e1e5e8;border-radius:10px;padding:13px}.sample-list.menu{max-width:360px}.sample-list.sidebar{max-width:245px}.sample-list header{font-size:11px;color:#7b858d;padding-bottom:10px;border-bottom:1px solid #edf0f1;margin-bottom:10px}.sample-account{display:flex;gap:8px;align-items:flex-start}.avatar{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#dceee8;color:#1b6851;font-weight:600;font-size:11px;flex:none}.sample-account strong{display:block;font-size:12px;margin-bottom:4px}.sample-account small{display:block;font-size:11px;color:#69737b;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.usage{background:white;border:1px solid #e1e5e8;border-radius:10px;padding:15px}.usage-head,.usage-foot{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.usage-head{font-size:12px;color:#68727a}.usage-head strong{color:#151a1e;font-size:20px;font-variant-numeric:tabular-nums}.meter{height:5px;background:#e9eef1;border-radius:9px;margin:13px 0 11px;overflow:hidden}.meter:before{content:"";display:block;width:63%;height:100%;background:#343b40;border-radius:9px}.usage-foot{font-size:12px;color:#68727a;font-variant-numeric:tabular-nums}.usage-foot output{text-align:right;white-space:nowrap}.preview-note{margin-top:8px}.status{display:flex;justify-content:space-between;color:#8b9299;font-size:11px;padding:2px 2px 0}
+    @media(max-width:450px){body{padding:8px}.content{padding:16px}.usage-foot{font-size:11px}}
+  </style>
+</head>
+<body>
+  <main class="window" aria-label="SwitchGPT 显示设置原型">
+    <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><strong>Display Settings</strong></div>
+    <div class="content">
+      <h1>Customize display</h1>
+      <p>调整账号列表与额度信息的显示方式。此页面使用虚构数据演示。</p>
+      <div class="segment" role="group" aria-label="账号列表位置"><button class="active" type="button">Menu bar popover</button><button type="button">Dashboard sidebar</button></div>
+      <section class="card"><h2>Visible information</h2><p>账号名称和当前账号标记始终显示。</p><div class="stub"><span>☑ Plan</span><span>☑ Weekly limit</span><b>☷</b></div></section>
+      <section class="card" aria-labelledby="format-title">
+        <h2 id="format-title">Reset time format</h2>
+        <p>统一设置菜单栏账号列表、目录栏账号列表和额度详情的重置时间。所有选项都显示本机时间。</p>
+        <div class="options" role="radiogroup" aria-label="重置时间格式">
+          <button class="option" type="button" role="radio" aria-checked="false" data-format="english"><span class="dot"></span><span class="option-content"><strong>英文月名</strong><small>Reset at 2026 Sep 6 15:00</small></span></button>
+          <button class="option selected" type="button" role="radio" aria-checked="true" data-format="chinese"><span class="dot"></span><span class="option-content"><strong>中文日期</strong><small>重置时间：2026年9月6日15:00</small></span></button>
+          <button class="option" type="button" role="radio" aria-checked="false" data-format="compact"><span class="dot"></span><span class="option-content"><strong>紧凑数字</strong><small>2026 0906 15:00</small></span></button>
+        </div>
+        <div class="preview" aria-live="polite">
+          <div class="preview-label"><b>Preview</b><span>虚构账号和时间 · 本机时区</span></div>
+          <div class="preview-switch" role="group" aria-label="预览位置">
+            <button class="active" type="button" aria-pressed="true" data-preview="menu">菜单栏</button>
+            <button type="button" aria-pressed="false" data-preview="sidebar">目录栏</button>
+            <button type="button" aria-pressed="false" data-preview="detail">额度详情</button>
+          </div>
+          <div class="sample-view" data-view="menu"><div class="sample-list menu"><header>Accounts</header><div class="sample-account"><span class="avatar">S</span><div><strong>Sample account</strong><small class="reset-value">重置时间：2026年9月6日15:00</small></div></div></div></div>
+          <div class="sample-view" data-view="sidebar" hidden><div class="sample-list sidebar"><header>Accounts</header><div class="sample-account"><span class="avatar">S</span><div><strong>Sample account</strong><small class="reset-value">重置时间：2026年9月6日15:00</small></div></div></div></div>
+          <div class="sample-view" data-view="detail" hidden><div class="usage"><div class="usage-head"><span>Weekly limit</span><strong>63% left</strong></div><div class="meter"></div><div class="usage-foot"><span>37% used</span><output class="reset-value">重置时间：2026年9月6日15:00</output></div></div></div>
+          <p class="preview-note">菜单栏和目录栏启用“Weekly reset”字段后，会按所选格式显示；额度详情始终显示。</p>
+        </div>
+      </section>
+      <div class="status"><span>演示原型 · 使用虚构额度与日期</span><span id="saved">已选择中文日期</span></div>
+    </div>
+  </main>
+  <script>
+    const labels={english:["Reset at 2026 Sep 6 15:00","已选择英文月名"],chinese:["重置时间：2026年9月6日15:00","已选择中文日期"],compact:["2026 0906 15:00","已选择紧凑数字"]};
+    document.querySelectorAll('.option').forEach(button=>button.addEventListener('click',()=>{
+      document.querySelectorAll('.option').forEach(item=>{item.classList.toggle('selected',item===button);item.setAttribute('aria-checked',String(item===button))});
+      document.querySelectorAll('.reset-value').forEach(value=>value.textContent=labels[button.dataset.format][0]);
+      document.querySelector('#saved').textContent=labels[button.dataset.format][1];
+    }));
+    document.querySelectorAll('[data-preview]').forEach(button=>button.addEventListener('click',()=>{
+      document.querySelectorAll('[data-preview]').forEach(item=>{item.classList.toggle('active',item===button);item.setAttribute('aria-pressed',String(item===button))});
+      document.querySelectorAll('[data-view]').forEach(view=>view.hidden=view.dataset.view!==button.dataset.preview);
+    }));
+    document.querySelectorAll('.segment button').forEach(button=>button.addEventListener('click',()=>{
+      document.querySelectorAll('.segment button').forEach(item=>item.classList.toggle('active',item===button));
+    }));
+  </script>
+</body>
+</html>

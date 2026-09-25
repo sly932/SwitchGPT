@@ -5,6 +5,7 @@ struct SwitchGPTSidebar: View {
   let store: SwitchGPTAppStore
   let updateStore: AppUpdateStore
   let listPreferences: AccountListPreferences
+  let resetTimePreferences: ResetTimePreferences
   @Binding var selection: AccountID?
   let topInset: CGFloat
   let onAddOrCancel: () -> Void
@@ -73,7 +74,8 @@ struct SwitchGPTSidebar: View {
                 isCurrent: store.currentAccountID.map { $0 == account.id } ?? false,
                 isSelected: selection == account.id,
                 refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
-                settings: listPreferences.sidebar
+                settings: listPreferences.sidebar,
+                resetTimeFormat: resetTimePreferences.format
               )
             }
             .buttonStyle(.plain)
@@ -265,6 +267,7 @@ private struct AccountSidebarRow: View {
   let isSelected: Bool
   let refreshFailed: Bool
   let settings: AccountListSettings
+  let resetTimeFormat: ResetTimeFormat
 
   @State private var isHovered = false
 
@@ -282,19 +285,36 @@ private struct AccountSidebarRow: View {
           .truncationMode(.middle)
           .help(account.accountLabel)
         if settings.density == .detailed, !settings.orderedVisibleFields.isEmpty {
-          Text(settings.summary(for: account, refreshFailed: refreshFailed))
+          Text(settings.summary(
+            for: account,
+            resetTimeFormat: resetTimeFormat,
+            refreshFailed: refreshFailed
+          ))
             .font(.system(size: 11).monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .help(settings.summary(for: account, refreshFailed: refreshFailed))
+            .help(settings.summary(
+              for: account,
+              resetTimeFormat: resetTimeFormat,
+              refreshFailed: refreshFailed
+            ))
         }
       }
 
       if settings.density == .compact, !settings.orderedVisibleFields.isEmpty {
-        Text(settings.summary(for: account, refreshFailed: refreshFailed))
+        Text(settings.summary(
+          for: account,
+          resetTimeFormat: resetTimeFormat,
+          refreshFailed: refreshFailed
+        ))
           .font(.system(size: 11).monospacedDigit())
           .foregroundStyle(.secondary)
           .lineLimit(1)
+          .help(settings.summary(
+            for: account,
+            resetTimeFormat: resetTimeFormat,
+            refreshFailed: refreshFailed
+          ))
       }
 
       Spacer(minLength: 4)

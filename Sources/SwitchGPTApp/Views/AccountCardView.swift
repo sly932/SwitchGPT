@@ -5,6 +5,7 @@ struct AccountCardView: View {
   let account: AccountRecord
   let isCurrent: Bool
   let allowsCurrentAction: Bool
+  let resetTimeFormat: ResetTimeFormat
   let isBusy: Bool
   let onPreviewSwitch: () -> Void
   let onRemove: (() -> Void)?
@@ -28,7 +29,8 @@ struct AccountCardView: View {
       VStack(alignment: .leading, spacing: 18) {
         UsageWindowRow(
           title: L10n.string("Weekly limit"),
-          window: account.usage.weekly
+          window: account.usage.weekly,
+          resetTimeFormat: resetTimeFormat
         )
 
         if let fiveHour = account.usage.fiveHour {
@@ -36,7 +38,8 @@ struct AccountCardView: View {
 
           UsageWindowRow(
             title: L10n.string("5-hour limit"),
-            window: fiveHour
+            window: fiveHour,
+            resetTimeFormat: resetTimeFormat
           )
         }
 

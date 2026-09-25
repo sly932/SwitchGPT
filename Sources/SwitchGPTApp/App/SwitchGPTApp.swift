@@ -75,6 +75,7 @@ struct SwitchGPTApp: App {
   )
   @State private var updateStore = AppUpdateStore()
   @State private var listPreferences = AccountListPreferences()
+  @State private var resetTimePreferences = ResetTimePreferences()
 
   private var appLocale: Locale {
     (AppLanguage(rawValue: languageRawValue) ?? .system).locale
@@ -82,7 +83,12 @@ struct SwitchGPTApp: App {
 
   var body: some Scene {
     Window("switchgpt-sly", id: "dashboard") {
-      DashboardView(store: store, updateStore: updateStore, listPreferences: listPreferences)
+      DashboardView(
+        store: store,
+        updateStore: updateStore,
+        listPreferences: listPreferences,
+        resetTimePreferences: resetTimePreferences
+      )
         .environment(\.locale, appLocale)
     }
     .defaultSize(width: 820, height: 592)
@@ -92,13 +98,21 @@ struct SwitchGPTApp: App {
     }
 
     Window(L10n.string("Settings"), id: "display-settings") {
-      AccountListSettingsView(preferences: listPreferences, store: store)
+      AccountListSettingsView(
+        preferences: listPreferences,
+        resetTimePreferences: resetTimePreferences,
+        store: store
+      )
         .environment(\.locale, appLocale)
     }
     .defaultSize(width: 590, height: 660)
 
     MenuBarExtra {
-      MenuBarView(store: store, listPreferences: listPreferences)
+      MenuBarView(
+        store: store,
+        listPreferences: listPreferences,
+        resetTimePreferences: resetTimePreferences
+      )
         .id(languageRawValue)
         .environment(\.locale, appLocale)
     } label: {
