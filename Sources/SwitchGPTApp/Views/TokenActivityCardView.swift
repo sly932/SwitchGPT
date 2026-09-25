@@ -49,7 +49,6 @@ struct TokenActivityCardView: View {
       RoundedRectangle(cornerRadius: ChatGPTStyle.panelRadius, style: .continuous)
         .stroke(ChatGPTStyle.border, lineWidth: 1)
     }
-    .id(account.id)
   }
 
   private func summary(_ activity: AccountTokenActivity) -> some View {
