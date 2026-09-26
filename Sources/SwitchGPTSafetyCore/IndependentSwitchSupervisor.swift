@@ -13,6 +13,22 @@ public enum SupervisorSignatureEvidence: Equatable, Sendable {
   case invalid
 }
 
+public enum SupervisorSignaturePolicy {
+  /// Marker used by the local development app when it is signed ad hoc.
+  public static let localAdHocTeamIdentifier = "SWITCHGPT-LOCAL-ADHOC"
+
+  public static func matches(
+    actualTeamIdentifier: String?,
+    expectedTeamIdentifier: String
+  ) -> Bool {
+    if expectedTeamIdentifier == localAdHocTeamIdentifier {
+      return actualTeamIdentifier == nil || actualTeamIdentifier?.isEmpty == true
+    }
+    guard let actualTeamIdentifier, !actualTeamIdentifier.isEmpty else { return false }
+    return actualTeamIdentifier == expectedTeamIdentifier
+  }
+}
+
 public struct SupervisorHostEvidence: Equatable, Sendable {
   public let hostBundleIdentifier: String
   public let expectedHostBundleIdentifier: String

@@ -30,7 +30,7 @@ struct RealSwitchResult: Sendable {
 }
 
 enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
-  case unsignedHost
+  case invalidHostSigningConfiguration
   case invalidTargetApplication
   case targetApplicationChanged
   case activeAccountNotConfigured
@@ -43,8 +43,8 @@ enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
 
   var errorDescription: String? {
     switch self {
-    case .unsignedHost:
-      return L10n.string("This build is not signed for experimental switching.")
+    case .invalidHostSigningConfiguration:
+      return L10n.string("This build's local signing configuration is invalid.")
     case .invalidTargetApplication:
       return L10n.string("The installed ChatGPT app could not be verified.")
     case .targetApplicationChanged:
@@ -86,7 +86,7 @@ enum ExperimentalRealSwitchCoordinator {
         forInfoDictionaryKey: "SwitchGPTHostTeamIdentifier"
       ) as? String, !expectedTeam.isEmpty
     else {
-      throw ExperimentalRealSwitchError.unsignedHost
+      throw ExperimentalRealSwitchError.invalidHostSigningConfiguration
     }
     let targetApplicationCompatibility = try validateTargetApplication()
 
