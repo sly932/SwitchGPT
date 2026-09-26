@@ -133,8 +133,11 @@ public enum EmbeddedRecoveryHelperContract {
         &signingInformation
       ) == errSecSuccess,
       let information = signingInformation as? [CFString: Any],
-      information[kSecCodeInfoTeamIdentifier] as? String == expectedTeamIdentifier,
-      information[kSecCodeInfoIdentifier] as? String == expectedSigningIdentifier
+      information[kSecCodeInfoIdentifier] as? String == expectedSigningIdentifier,
+      SupervisorSignaturePolicy.matches(
+        actualTeamIdentifier: information[kSecCodeInfoTeamIdentifier] as? String,
+        expectedTeamIdentifier: expectedTeamIdentifier
+      )
     else {
       throw RecoverySupervisorError.invalidHelperSignature
     }

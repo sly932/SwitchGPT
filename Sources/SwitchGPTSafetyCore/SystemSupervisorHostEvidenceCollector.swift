@@ -65,7 +65,10 @@ public enum SystemSupervisorHostEvidenceCollector {
       bundleIdentifier: bundleIdentifier,
       bundleURL: bundle.bundleURL,
       executableURL: executableURL,
-      signatureEvidence: try currentSignatureEvidence(executableURL: executableURL),
+      signatureEvidence: try currentSignatureEvidence(
+        executableURL: executableURL,
+        expectedTeamIdentifier: configuration.expectedHostTeamIdentifier
+      ),
       ancestorExecutableURLs: try currentAncestorExecutableURLs()
     )
     return evidence(from: snapshot, configuration: configuration)
@@ -90,7 +93,8 @@ public enum SystemSupervisorHostEvidenceCollector {
   }
 
   private static func currentSignatureEvidence(
-    executableURL: URL
+    executableURL: URL,
+    expectedTeamIdentifier: String
   ) throws -> SupervisorSignatureEvidence {
     var code: SecStaticCode?
     guard
@@ -114,13 +118,20 @@ public enum SystemSupervisorHostEvidenceCollector {
         &signingInformation
       ) == errSecSuccess,
       let information = signingInformation as? [CFString: Any],
-      let teamIdentifier = information[kSecCodeInfoTeamIdentifier] as? String,
       let signingIdentifier = information[kSecCodeInfoIdentifier] as? String
     else {
       return .invalid
     }
+    guard
+      SupervisorSignaturePolicy.matches(
+        actualTeamIdentifier: information[kSecCodeInfoTeamIdentifier] as? String,
+        expectedTeamIdentifier: expectedTeamIdentifier
+      )
+    else {
+      return .invalid
+    }
     return .verified(
-      teamIdentifier: teamIdentifier,
+      teamIdentifier: expectedTeamIdentifier,
       signingIdentifier: signingIdentifier
     )
   }
