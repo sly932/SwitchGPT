@@ -3,6 +3,32 @@ import XCTest
 @testable import SwitchGPTAppCore
 
 final class AppCoreTests: XCTestCase {
+  func testChatGPTCodexCLIPrefersCurrentLayoutAndFallsBackToLegacy() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("switchgpt-codex-layout-" + UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let resources = root.appendingPathComponent("Contents/Resources", isDirectory: true)
+    let current = resources.appendingPathComponent("codex-cli/bin/codex")
+    let legacy = resources.appendingPathComponent("codex")
+    try FileManager.default.createDirectory(
+      at: current.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+    XCTAssertEqual(ChatGPTCodexCLI.binaryURL(in: root), current)
+
+    try Data("#!/bin/sh\nexit 0\n".utf8).write(to: legacy)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: legacy.path)
+    XCTAssertEqual(ChatGPTCodexCLI.binaryURL(in: root), legacy)
+
+    try Data("#!/bin/sh\nexit 0\n".utf8).write(to: current)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: current.path)
+    XCTAssertEqual(ChatGPTCodexCLI.binaryURL(in: root), current)
+
+    try FileManager.default.removeItem(at: current)
+    try FileManager.default.createSymbolicLink(at: current, withDestinationURL: legacy)
+    XCTAssertEqual(ChatGPTCodexCLI.binaryURL(in: root), legacy)
+  }
+
   func testRealSwitchReceiptStorePersistsMetadataOnlyEvidenceWithoutOverwrite() throws {
     let root = FileManager.default.temporaryDirectory
       .appendingPathComponent("switchgpt-receipt-store-" + UUID().uuidString)

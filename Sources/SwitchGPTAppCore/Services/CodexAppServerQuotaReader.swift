@@ -1,15 +1,17 @@
 import Foundation
 
 public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, Sendable {
-  public let codexBinaryURL: URL
+  private let codexBinaryOverrideURL: URL?
+  public var codexBinaryURL: URL {
+    codexBinaryOverrideURL ?? ChatGPTCodexCLI.binaryURL()
+  }
   public let timeout: Duration
 
   public init(
-    codexBinaryURL: URL = URL(
-      fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
+    codexBinaryURL: URL? = nil,
     timeout: Duration = .seconds(20)
   ) {
-    self.codexBinaryURL = codexBinaryURL
+    self.codexBinaryOverrideURL = codexBinaryURL
     self.timeout = timeout
   }
 
