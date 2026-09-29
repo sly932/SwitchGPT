@@ -29,18 +29,19 @@ public enum ManagedAccountOnboardingError: Error, Equatable, LocalizedError, Sen
 }
 
 public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
-  public let codexBinaryURL: URL
+  private let codexBinaryOverrideURL: URL?
+  public var codexBinaryURL: URL {
+    codexBinaryOverrideURL ?? ChatGPTCodexCLI.binaryURL()
+  }
   public let timeout: TimeInterval
   public let accountsRootURL: URL
 
   public init(
-    codexBinaryURL: URL = URL(
-      fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"
-    ),
+    codexBinaryURL: URL? = nil,
     timeout: TimeInterval = 10 * 60,
     accountsRootURL: URL? = nil
   ) {
-    self.codexBinaryURL = codexBinaryURL.standardizedFileURL
+    self.codexBinaryOverrideURL = codexBinaryURL?.standardizedFileURL
     self.timeout = timeout
     if let accountsRootURL {
       self.accountsRootURL = accountsRootURL.standardizedFileURL
