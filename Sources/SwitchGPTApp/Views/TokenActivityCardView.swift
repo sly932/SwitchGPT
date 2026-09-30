@@ -190,7 +190,6 @@ struct TokenActivityCardView: View {
           }
           .padding(2)
         }
-        .scrollClipDisabled()
         .overlayPreferenceValue(CellAnchorPreference.self) { anchors in
           GeometryReader { geometry in
             if let hoveredCell, let anchor = anchors[hoveredCell],
