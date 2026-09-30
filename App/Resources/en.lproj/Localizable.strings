@@ -16,6 +16,10 @@
 "少" = "Less";
 "多" = "More";
 "每日图显示最近一年。未返回的日期不按零用量计算。" = "Daily activity covers the past year. Missing dates are not counted as zero usage.";
+"每列代表一周，只汇总该周已返回的每日记录；没有记录的周显示浅灰。" = "Each column represents one week and sums only returned daily records. Weeks without records appear light gray.";
+"每格代表截至当天已返回记录的累计值；没有记录的日期显示浅灰。此值可能小于上方的全生命周期总量。" = "Each square shows the total of returned records through that day. Dates without records appear light gray. This can be lower than the lifetime total above.";
+"当周" = "week of";
+"截至" = "Through";
 "每周用量只汇总该周已返回的每日记录；没有记录的周不显示。" = "Weekly usage sums only returned daily records. Weeks with no records are hidden.";
 "累计图只相加已返回的每日记录，可能小于上方的全生命周期总量。" = "The cumulative chart sums returned daily records and may be lower than lifetime usage above.";
 "累计 Token 数" = "Lifetime tokens";
