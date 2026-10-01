@@ -1,15 +1,20 @@
 import Foundation
 
 public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, Sendable {
-  public let codexBinaryURL: URL
+  public var codexBinaryURL: URL {
+    configuredCodexBinaryURL ?? BundledCodexExecutable.resolve(in: desktopApplicationURL)
+  }
   public let timeout: Duration
+  private let configuredCodexBinaryURL: URL?
+  private let desktopApplicationURL: URL
 
   public init(
-    codexBinaryURL: URL = URL(
-      fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
-    timeout: Duration = .seconds(20)
+    codexBinaryURL: URL? = nil,
+    timeout: Duration = .seconds(20),
+    desktopApplicationURL: URL = BundledCodexExecutable.defaultApplicationURL
   ) {
-    self.codexBinaryURL = codexBinaryURL
+    self.configuredCodexBinaryURL = codexBinaryURL?.standardizedFileURL
+    self.desktopApplicationURL = desktopApplicationURL.standardizedFileURL
     self.timeout = timeout
   }
 
@@ -25,6 +30,7 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
       return [:]
     }
 
+    let codexBinaryURL = self.codexBinaryURL
     let batchResult = await withTaskGroup(
       of: (AccountID, Result<AccountQuotaSnapshot, QuotaReadingError>).self,
       returning: Result<[AccountID: AccountQuotaSnapshot], QuotaReadingError>.self

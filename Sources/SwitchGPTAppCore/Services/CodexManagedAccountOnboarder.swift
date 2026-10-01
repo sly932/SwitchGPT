@@ -29,18 +29,22 @@ public enum ManagedAccountOnboardingError: Error, Equatable, LocalizedError, Sen
 }
 
 public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
-  public let codexBinaryURL: URL
+  public var codexBinaryURL: URL {
+    configuredCodexBinaryURL ?? BundledCodexExecutable.resolve(in: desktopApplicationURL)
+  }
   public let timeout: TimeInterval
   public let accountsRootURL: URL
+  private let configuredCodexBinaryURL: URL?
+  private let desktopApplicationURL: URL
 
   public init(
-    codexBinaryURL: URL = URL(
-      fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"
-    ),
+    codexBinaryURL: URL? = nil,
     timeout: TimeInterval = 10 * 60,
-    accountsRootURL: URL? = nil
+    accountsRootURL: URL? = nil,
+    desktopApplicationURL: URL = BundledCodexExecutable.defaultApplicationURL
   ) {
-    self.codexBinaryURL = codexBinaryURL.standardizedFileURL
+    self.configuredCodexBinaryURL = codexBinaryURL?.standardizedFileURL
+    self.desktopApplicationURL = desktopApplicationURL.standardizedFileURL
     self.timeout = timeout
     if let accountsRootURL {
       self.accountsRootURL = accountsRootURL.standardizedFileURL
@@ -62,6 +66,7 @@ public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
   }
 
   public func signIn() async throws -> String {
+    let codexBinaryURL = self.codexBinaryURL
     guard FileManager.default.isExecutableFile(atPath: codexBinaryURL.path) else {
       throw ManagedAccountOnboardingError.missingCodexBinary
     }
