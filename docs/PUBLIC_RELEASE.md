@@ -2,12 +2,12 @@
 
 This document defines what may be published from this repository.
 
-`0.2.0` was the first stable public release; `0.2.2` is the current stable
+`0.2.0` was the first stable public release; `0.2.3` is the current stable
 release. The source, tag, GitHub Release, and binary are published only from the
 isolated audited tree described below. Earlier `0.1.0-alpha.*` releases remain
 historical prereleases.
 
-## Public in `0.2.2`
+## Public in `0.2.3`
 
 - SwiftPM sources, mock UI, tests, and documentation.
 - The read-only quota decoder and its isolated app-server reader.
@@ -15,6 +15,8 @@ historical prereleases.
 - Stable-release reminders and the manual macOS update-check command.
 - Per-account quota refresh isolation, partial-update feedback, and preservation
   of the last successful usage for accounts whose login cannot refresh.
+- Bundled Codex component discovery for current and previous desktop layouts,
+  shared by managed sign-in and quota reads and refreshed before each operation.
 - Safety Core and temporary-fixture lifecycle validation.
 - Deliberately reviewed, metadata-only validation notes (not raw protocol exports or machine logs).
 - A high-level, metadata-only statement that a private gate failed, without account identifiers or machine logs.

@@ -29,19 +29,22 @@ public enum ManagedAccountOnboardingError: Error, Equatable, LocalizedError, Sen
 }
 
 public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
-  private let codexBinaryOverrideURL: URL?
   public var codexBinaryURL: URL {
-    codexBinaryOverrideURL ?? ChatGPTCodexCLI.binaryURL()
+    configuredCodexBinaryURL ?? BundledCodexExecutable.resolve(in: desktopApplicationURL)
   }
   public let timeout: TimeInterval
   public let accountsRootURL: URL
+  private let configuredCodexBinaryURL: URL?
+  private let desktopApplicationURL: URL
 
   public init(
     codexBinaryURL: URL? = nil,
     timeout: TimeInterval = 10 * 60,
-    accountsRootURL: URL? = nil
+    accountsRootURL: URL? = nil,
+    desktopApplicationURL: URL = BundledCodexExecutable.defaultApplicationURL
   ) {
-    self.codexBinaryOverrideURL = codexBinaryURL?.standardizedFileURL
+    self.configuredCodexBinaryURL = codexBinaryURL?.standardizedFileURL
+    self.desktopApplicationURL = desktopApplicationURL.standardizedFileURL
     self.timeout = timeout
     if let accountsRootURL {
       self.accountsRootURL = accountsRootURL.standardizedFileURL
@@ -63,6 +66,7 @@ public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
   }
 
   public func signIn() async throws -> String {
+    let codexBinaryURL = self.codexBinaryURL
     guard FileManager.default.isExecutableFile(atPath: codexBinaryURL.path) else {
       throw ManagedAccountOnboardingError.missingCodexBinary
     }
