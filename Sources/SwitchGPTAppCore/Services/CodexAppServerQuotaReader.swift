@@ -302,6 +302,9 @@ private struct CodexAppServerClient: Sendable {
     )
     let accountMetadata = try CodexAccountDecoder.decode(from: accountData)
     let quotaUsage = try CodexRateLimitDecoder.decodeUsage(from: rateLimitsData)
+    let planName = try CodexRateLimitDecoder.decodePlanName(
+      from: rateLimitsData, fallback: accountMetadata.planName
+    )
     // Token activity is optional on older app-server builds and can be unavailable
     // independently of rate limits. Keep the valid quota snapshot in that case.
     let tokenActivity = try? CodexTokenActivityDecoder.decode(
@@ -316,7 +319,7 @@ private struct CodexAppServerClient: Sendable {
     return ReadOnlyQuotaSnapshot(
       identityHash: accountMetadata.identityHash,
       email: accountMetadata.email,
-      planName: accountMetadata.planName,
+      planName: planName,
       usage: tokenActivity.map { quotaUsage.withTokenActivity($0) } ?? quotaUsage
     )
   }
