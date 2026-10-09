@@ -55,7 +55,7 @@ struct DashboardView: View {
         updateStore: updateStore,
         selection: $selectedAccountID,
         topInset: windowTopInset,
-        onAddOrCancel: addOrCancelAccountSignIn
+        onAddOrCancel: { addOrCancelAccountSignIn() }
       )
       .frame(width: ChatGPTStyle.sidebarWidth)
 
@@ -155,6 +155,9 @@ struct DashboardView: View {
           requestSwitch(to: selectedAccount)
         }
       },
+      onReauthenticate: { accountID in
+        addOrCancelAccountSignIn(replacing: accountID)
+      },
       onRemove: onRemoveSelectedAccount
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -210,14 +213,14 @@ struct DashboardView: View {
     }
   }
 
-  private func addOrCancelAccountSignIn() {
+  private func addOrCancelAccountSignIn(replacing accountID: AccountID? = nil) {
     if store.accountOnboardingActivity.isInProgress {
       accountSignInTask?.cancel()
       return
     }
     guard accountSignInTask == nil, !store.activity.blocksAccountOnboarding else { return }
     accountSignInTask = Task {
-      if let newID = await store.signInAccount() {
+      if let newID = await store.signInAccount(replacing: accountID) {
         selectedAccountID = newID
       }
       accountSignInTask = nil
