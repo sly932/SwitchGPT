@@ -71,7 +71,8 @@ struct SwitchGPTApp: App {
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
   @State private var store = SwitchGPTAppStore(
     persistence: PreviewStateFileStore.defaultStore,
-    initialAccounts: []
+    initialAccounts: [],
+    credentialSynchronizer: ActiveAccountCredentialSynchronizer()
   )
   @State private var updateStore = AppUpdateStore()
   @State private var listPreferences = AccountListPreferences()

@@ -169,7 +169,8 @@ enum ExperimentalRealSwitchCoordinator {
     )
     try SecureAuthenticationFileInstaller.synchronizePrivateAuthenticationFile(
       from: activeAuthenticationURL,
-      to: plan.sourceAuthenticationURL
+      to: plan.sourceAuthenticationURL,
+      expectedIdentity: plan.sourceIdentity
     )
     guard
       try PinnedAuthenticationIdentityReader(
