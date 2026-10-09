@@ -1100,100 +1100,31 @@ final class AppCoreTests: XCTestCase {
   }
 
   @MainActor
-  func testManagedSignInUpdatesExistingAccountStorage() async {
-    let previousUsage = AccountUsage(weekly: UsageWindow(usedPercent: 50, resetAt: Date()))
-    let newUsage = AccountUsage(weekly: UsageWindow(usedPercent: 1, resetAt: Date()))
-    let existing = AccountRecord(
-      id: AccountID("existing"), displayName: "Existing", detail: "",
-      planName: "Plus", symbolName: "person.crop.circle", accent: .orange,
-      usage: previousUsage, source: .codexHome(path: "/private/existing"),
-      identityHash: "abcdef012345"
-    )
-    let persistence = InMemoryPreviewStateStore(
-      state: PreviewState(accounts: [existing], currentAccountID: existing.id)
-    )
+  func testManagedSignInDiscardsDuplicateAccountStorage() async {
     let onboarder = StubManagedAccountOnboarder(path: "/private/managed-duplicate")
     let probe = StubAccountProbe(
       result: .success(
         ReadOnlyAccountProbe(
           identityHash: "abcdef012345",
-          usage: newUsage
+          usage: AccountUsage(weekly: UsageWindow(usedPercent: 1, resetAt: Date()))
         )
       ))
-    let store = SwitchGPTAppStore(
-      accountProbe: probe, accountOnboarder: onboarder,
-      persistence: persistence, initialAccounts: []
+    let store = SwitchGPTAppStore(accountProbe: probe, accountOnboarder: onboarder)
+    _ = await store.addReadOnlyAccount(
+      displayName: "Existing",
+      detail: "",
+      codexHomePath: "/private/existing"
     )
 
-    let updatedID = await store.signInAccount()
+    let duplicate = await store.signInAccount()
 
-    XCTAssertEqual(updatedID, existing.id)
-    XCTAssertEqual(store.accounts.count, 1)
-    XCTAssertEqual(
-      store.accounts.first?.source,
-      .codexHome(path: "/private/managed-duplicate")
-    )
-    XCTAssertEqual(store.accounts.first?.usage, newUsage)
-    XCTAssertEqual(try? persistence.load()?.accounts, store.accounts)
-    XCTAssertEqual(store.currentAccountID, existing.id)
-    XCTAssertEqual(onboarder.discardedPaths, ["/private/existing"])
+    XCTAssertNil(duplicate)
+    XCTAssertEqual(onboarder.discardedPaths, ["/private/managed-duplicate"])
     XCTAssertFalse(store.activity.isFailure)
-    XCTAssertEqual(store.accountOnboardingActivity, .idle)
-  }
-
-  @MainActor
-  func testTargetedSignInRejectsDifferentIdentityWithoutReplacingAccount() async {
-    let usage = AccountUsage(weekly: UsageWindow(usedPercent: 5, resetAt: Date()))
-    let existing = AccountRecord(
-      id: AccountID("expired"), displayName: "Expired", detail: "",
-      planName: "Plus", symbolName: "person.crop.circle", accent: .orange,
-      usage: usage, source: .codexHome(path: "/private/expired"),
-      identityHash: "111111111111"
+    XCTAssertEqual(
+      store.accountOnboardingActivity,
+      .failure(message: "This account is already configured")
     )
-    let persistence = InMemoryPreviewStateStore(
-      state: PreviewState(accounts: [existing], currentAccountID: existing.id)
-    )
-    let onboarder = StubManagedAccountOnboarder(path: "/private/wrong-login")
-    let store = SwitchGPTAppStore(
-      accountProbe: StubAccountProbe(result: .success(ReadOnlyAccountProbe(
-        identityHash: "222222222222", usage: usage
-      ))),
-      accountOnboarder: onboarder, persistence: persistence, initialAccounts: []
-    )
-
-    let result = await store.signInAccount(replacing: existing.id)
-    XCTAssertNil(result)
-    XCTAssertEqual(store.accounts, [existing])
-    XCTAssertEqual(onboarder.discardedPaths, ["/private/wrong-login"])
-  }
-
-  @MainActor
-  func testManagedSignInKeepsOldCredentialsWhenSavingReplacementFails() async {
-    let usage = AccountUsage(weekly: UsageWindow(usedPercent: 5, resetAt: Date()))
-    let existing = AccountRecord(
-      id: AccountID("existing"), displayName: "Existing", detail: "",
-      planName: "Plus", symbolName: "person.crop.circle", accent: .orange,
-      usage: usage, source: .codexHome(path: "/private/old"),
-      identityHash: "111111111111"
-    )
-    let persistence = InMemoryPreviewStateStore(
-      state: PreviewState(accounts: [existing], currentAccountID: existing.id)
-    )
-    persistence.setSaveFailure(true)
-    let onboarder = StubManagedAccountOnboarder(path: "/private/new")
-    let store = SwitchGPTAppStore(
-      accountProbe: StubAccountProbe(result: .success(ReadOnlyAccountProbe(
-        identityHash: existing.identityHash!, usage: usage
-      ))),
-      accountOnboarder: onboarder, persistence: persistence, initialAccounts: []
-    )
-
-    let result = await store.signInAccount(replacing: existing.id)
-
-    XCTAssertNil(result)
-    XCTAssertEqual(store.accounts, [existing])
-    XCTAssertEqual(try? persistence.load()?.accounts, [existing])
-    XCTAssertEqual(onboarder.discardedPaths, ["/private/new"])
   }
 
   func testPreviewStateFileStoreRejectsBroadFilePermissions() throws {
@@ -1376,7 +1307,6 @@ private struct SlowManagedAccountOnboarder: ManagedAccountOnboarding {
 private final class InMemoryPreviewStateStore: PreviewStatePersisting, @unchecked Sendable {
   private let lock = NSLock()
   private var state: PreviewState?
-  private var failSaves = false
 
   init(state: PreviewState?) {
     self.state = state
@@ -1387,14 +1317,7 @@ private final class InMemoryPreviewStateStore: PreviewStatePersisting, @unchecke
   }
 
   func save(_ state: PreviewState) throws {
-    try lock.withLock {
-      if failSaves { throw NSError(domain: "TestPersistence", code: 1) }
-      self.state = state
-    }
-  }
-
-  func setSaveFailure(_ shouldFail: Bool) {
-    lock.withLock { failSaves = shouldFail }
+    lock.withLock { self.state = state }
   }
 
   func remove() throws {
