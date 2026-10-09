@@ -84,6 +84,10 @@ public final class SwitchGPTAppStore {
   private let persistence: any PreviewStatePersisting
   private let credentialSynchronizer: any ActiveAccountCredentialSynchronizing
 
+  public var allAccountsTokenActivity: AllAccountsTokenActivity {
+    AllAccountsTokenActivity(accounts: accounts, excluding: quotaRefreshFailedAccountIDs)
+  }
+
   public init(
     quotaReader: any QuotaReading = MixedQuotaReader(),
     accountProbe: any ReadOnlyAccountProbing = CodexAppServerQuotaReader(),

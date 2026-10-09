@@ -2,26 +2,50 @@ import SwiftUI
 import SwitchGPTAppCore
 
 struct TokenActivityCardView: View {
-  let account: AccountRecord
+  let activity: AccountTokenActivity?
+  private let title: String
+  private let subtitle: String
+  private let badge: String
+  private let wasLoaded: Bool
+  private let allAccounts: AllAccountsTokenActivity?
+
+  init(account: AccountRecord) {
+    activity = account.usage.tokenActivity
+    title = L10n.string("Token 活动")
+    subtitle = L10n.string("当前所选账号的 Codex 用量")
+    badge = L10n.string("Codex 账号用量")
+    wasLoaded = account.usage.tokenActivityWasLoaded
+    allAccounts = nil
+  }
+
+  init(allAccounts: AllAccountsTokenActivity) {
+    self.allAccounts = allAccounts
+    activity = allAccounts.activity
+    title = L10n.string("全部账号 Token 活动")
+    subtitle = L10n.format("%d 个账号 · %d 个有 Token 数据",
+      allAccounts.eligibleAccountCount, allAccounts.contributingAccountCount)
+      + (allAccounts.excludedAccountCount > 0
+        ? L10n.format(" · %d 个读取失败账号未计入", allAccounts.excludedAccountCount) : "")
+    badge = L10n.string("全部账号汇总")
+    wasLoaded = true
+  }
 
   @State private var mode: ActivityMode = .daily
   @State private var hoveredCell: String?
   @Environment(\.colorScheme) private var colorScheme
 
-  private var activity: AccountTokenActivity? { account.usage.tokenActivity }
-
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .top) {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Token 活动")
+          Text(title)
             .font(.system(size: 14, weight: .semibold))
-          Text("当前所选账号的 Codex 用量")
+          Text(subtitle)
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
         }
         Spacer()
-        Text("Codex 账号用量")
+        Text(badge)
           .font(.system(size: 11))
           .foregroundStyle(.tertiary)
       }
@@ -31,12 +55,25 @@ struct TokenActivityCardView: View {
         chartSection(activity)
       } else {
         ContentUnavailableView(
-          L10n.string(account.usage.tokenActivityWasLoaded ? "暂无 Token 数据" : "暂时无法读取 Token 活动"),
+          L10n.string(wasLoaded ? "暂无 Token 数据" : "暂时无法读取 Token 活动"),
           systemImage: "chart.bar.xaxis",
-          description: Text("稍后点击右上角的刷新按钮重试。")
+          description: Text(L10n.string(allAccounts == nil
+            ? "稍后点击右上角的刷新按钮重试。" : "请在账号用量页或菜单栏刷新用量，汇总将随之更新。"))
         )
         .frame(maxWidth: .infinity)
         .frame(minHeight: 150)
+      }
+
+      if let allAccounts {
+        VStack(alignment: .leading, spacing: 4) {
+          if allAccounts.hasMissingData {
+            Text("部分指标或每日记录未返回，仅汇总已有数据。")
+          }
+          Text("各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。")
+          Text("随其他位置的用量刷新更新。")
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
       }
     }
     .padding(18)
@@ -48,7 +85,6 @@ struct TokenActivityCardView: View {
       RoundedRectangle(cornerRadius: ChatGPTStyle.panelRadius, style: .continuous)
         .stroke(ChatGPTStyle.border, lineWidth: 1)
     }
-    .id(account.id)
   }
 
   private func summary(_ activity: AccountTokenActivity) -> some View {
