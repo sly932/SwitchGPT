@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.3 - 2026-10-01
+
+- Restore official account sign-in after ChatGPT Desktop updates by detecting
+  the newer bundled Codex component layout.
+- Use the same component discovery for quota refresh, while retaining support
+  for the previous bundled executable layout.
+- Resolve the component before each operation so a desktop update can be picked
+  up while SwitchGPT remains open.
+
 ## 0.2.2 - 2026-09-02
 
 - Isolate quota refresh failures per account so one expired or unavailable login

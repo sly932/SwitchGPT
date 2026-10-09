@@ -7,6 +7,7 @@ struct SwitchGPTSidebar: View {
   let listPreferences: AccountListPreferences
   let resetTimePreferences: ResetTimePreferences
   @Binding var selection: AccountID?
+  @Binding var showsAccountOverview: Bool
   let topInset: CGFloat
   let onAddOrCancel: () -> Void
 
@@ -38,6 +39,14 @@ struct SwitchGPTSidebar: View {
           )
         }
 
+        SidebarActionRow(
+          title: "账号总览",
+          symbol: "chart.bar.xaxis",
+          action: { showsAccountOverview = true },
+          isSelected: showsAccountOverview
+        )
+        .padding(.top, 12)
+
         HStack {
           Text("Accounts")
             .font(.system(size: 12, weight: .medium))
@@ -68,11 +77,12 @@ struct SwitchGPTSidebar: View {
           ForEach(listPreferences.sidebar.orderedAccounts(store.accounts)) { account in
             Button {
               selection = account.id
+              showsAccountOverview = false
             } label: {
               AccountSidebarRow(
                 account: account,
                 isCurrent: store.currentAccountID.map { $0 == account.id } ?? false,
-                isSelected: selection == account.id,
+                isSelected: !showsAccountOverview && selection == account.id,
                 refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
                 settings: listPreferences.sidebar,
                 resetTimeFormat: resetTimePreferences.format
@@ -233,6 +243,7 @@ private struct SidebarActionRow: View {
   let title: String
   let symbol: String
   let action: () -> Void
+  var isSelected: Bool = false
 
   @State private var isHovered = false
 
@@ -250,12 +261,14 @@ private struct SidebarActionRow: View {
       .padding(.horizontal, 10)
       .frame(height: 34)
       .background(
-        isHovered ? ChatGPTStyle.hoverFill : Color.clear,
+        isSelected ? ChatGPTStyle.subtleFill
+          : isHovered ? ChatGPTStyle.hoverFill : Color.clear,
         in: RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)
       )
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
     .onHover { isHovered = $0 }
     .animation(.easeOut(duration: 0.15), value: isHovered)
   }

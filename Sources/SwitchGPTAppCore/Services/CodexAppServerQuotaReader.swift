@@ -1,14 +1,20 @@
 import Foundation
 
 public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, Sendable {
-  public let codexBinaryURL: URL
+  public var codexBinaryURL: URL {
+    configuredCodexBinaryURL ?? BundledCodexExecutable.resolve(in: desktopApplicationURL)
+  }
   public let timeout: Duration
+  private let configuredCodexBinaryURL: URL?
+  private let desktopApplicationURL: URL
 
   public init(
     codexBinaryURL: URL? = nil,
-    timeout: Duration = .seconds(20)
+    timeout: Duration = .seconds(20),
+    desktopApplicationURL: URL = BundledCodexExecutable.defaultApplicationURL
   ) {
-    self.codexBinaryURL = codexBinaryURL ?? BundledCodexBinaryLocator.resolve()
+    self.configuredCodexBinaryURL = codexBinaryURL?.standardizedFileURL
+    self.desktopApplicationURL = desktopApplicationURL.standardizedFileURL
     self.timeout = timeout
   }
 
@@ -24,6 +30,7 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
       return [:]
     }
 
+    let codexBinaryURL = self.codexBinaryURL
     let batchResult = await withTaskGroup(
       of: (AccountID, Result<AccountQuotaSnapshot, QuotaReadingError>).self,
       returning: Result<[AccountID: AccountQuotaSnapshot], QuotaReadingError>.self
@@ -295,6 +302,9 @@ private struct CodexAppServerClient: Sendable {
     )
     let accountMetadata = try CodexAccountDecoder.decode(from: accountData)
     let quotaUsage = try CodexRateLimitDecoder.decodeUsage(from: rateLimitsData)
+    let planName = try CodexRateLimitDecoder.decodePlanName(
+      from: rateLimitsData, fallback: accountMetadata.planName
+    )
     // Token activity is optional on older app-server builds and can be unavailable
     // independently of rate limits. Keep the valid quota snapshot in that case.
     let tokenActivity = try? CodexTokenActivityDecoder.decode(
@@ -309,7 +319,7 @@ private struct CodexAppServerClient: Sendable {
     return ReadOnlyQuotaSnapshot(
       identityHash: accountMetadata.identityHash,
       email: accountMetadata.email,
-      planName: accountMetadata.planName,
+      planName: planName,
       usage: tokenActivity.map { quotaUsage.withTokenActivity($0) } ?? quotaUsage
     )
   }

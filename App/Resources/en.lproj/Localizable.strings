@@ -16,6 +16,10 @@
 "少" = "Less";
 "多" = "More";
 "每日图显示最近一年。未返回的日期不按零用量计算。" = "Daily activity covers the past year. Missing dates are not counted as zero usage.";
+"每列代表一周，只汇总该周已返回的每日记录；没有记录的周显示浅灰。" = "Each column represents one week and sums only returned daily records. Weeks without records appear light gray.";
+"每格代表截至当天已返回记录的累计值；没有记录的日期显示浅灰。此值可能小于上方的全生命周期总量。" = "Each square shows the total of returned records through that day. Dates without records appear light gray. This can be lower than the lifetime total above.";
+"当周" = "week of";
+"截至" = "Through";
 "每周用量只汇总该周已返回的每日记录；没有记录的周不显示。" = "Weekly usage sums only returned daily records. Weeks with no records are hidden.";
 "累计图只相加已返回的每日记录，可能小于上方的全生命周期总量。" = "The cumulative chart sums returned daily records and may be lower than lifetime usage above.";
 "累计 Token 数" = "Lifetime tokens";
@@ -27,3 +31,14 @@
 "日期" = "Date";
 "周" = "Week";
 "未返回数据" = "No data returned";
+
+/* All accounts token overview */
+"账号总览" = "Account overview";
+"全部账号 Token 活动" = "All accounts token activity";
+"%d 个账号 · %d 个有 Token 数据" = "%d accounts · %d with token data";
+" · %d 个读取失败账号未计入" = " · %d accounts with failed reads excluded";
+"全部账号汇总" = "All accounts total";
+"请在账号用量页或菜单栏刷新用量，汇总将随之更新。" = "Refresh usage from an account page or the menu bar to update this total.";
+"部分指标或每日记录未返回，仅汇总已有数据。" = "Some metrics or daily records are missing. Only returned data is summed.";
+"各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。" = "Each metric sums the corresponding account values, including peaks, turn durations, and streak days.";
+"随其他位置的用量刷新更新。" = "Updates when usage is refreshed elsewhere.";

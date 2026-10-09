@@ -6,8 +6,8 @@ script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd "$script_directory/.." && pwd)"
 app_name="SwitchGPT"
 bundle_id="com.kunpeng.SwitchGPT"
-version="${SWITCHGPT_VERSION:-0.2.2}"
-build_number="${SWITCHGPT_BUILD_NUMBER:-4}"
+version="${SWITCHGPT_VERSION:-0.2.3}"
+build_number="${SWITCHGPT_BUILD_NUMBER:-5}"
 signing_identity="${SWITCHGPT_SIGNING_IDENTITY:-}"
 dist_directory="$repository_root/dist/release"
 app_bundle="$dist_directory/$app_name.app"
@@ -26,7 +26,7 @@ if [[ -z "$signing_identity" ]]; then
   exit 64
 fi
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-  echo "SWITCHGPT_VERSION must be a numeric macOS bundle version such as 0.2.2" >&2
+  echo "SWITCHGPT_VERSION must be a numeric macOS bundle version such as 0.2.3" >&2
   exit 64
 fi
 if [[ ! "$build_number" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then

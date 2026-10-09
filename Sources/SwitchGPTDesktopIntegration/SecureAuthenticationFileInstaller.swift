@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import SwitchGPTSafetyCore
 
 public final class SecureAuthenticationFileInstaller: AuthenticationStateInstalling {
   public static let maximumAuthenticationBytes = 4 * 1024 * 1024
@@ -64,6 +65,29 @@ public final class SecureAuthenticationFileInstaller: AuthenticationStateInstall
     let destination = destinationURL.standardizedFileURL
     let data = try readPrivateAuthenticationFile(at: source)
     try validateAuthenticationPayload(data)
+    try preparePrivateDirectory(at: destination.deletingLastPathComponent())
+    try replacePrivateFile(data, at: destination)
+  }
+
+  /// Updates only an existing profile belonging to the expected active account.
+  /// Identity is checked on the exact bytes that will be written, before any replacement.
+  public static func synchronizePrivateAuthenticationFile(
+    from sourceURL: URL,
+    to destinationURL: URL,
+    expectedIdentity: IdentityID
+  ) throws {
+    let source = sourceURL.standardizedFileURL
+    let destination = destinationURL.standardizedFileURL
+    let data = try readPrivateAuthenticationFile(at: source)
+    let previous = try readPrivateAuthenticationFile(at: destination)
+    guard try PinnedAuthenticationIdentityReader.identity(fromAuthenticationData: data)
+      == expectedIdentity,
+      try PinnedAuthenticationIdentityReader.identity(fromAuthenticationData: previous)
+        == expectedIdentity
+    else {
+      throw DesktopIntegrationError.identityMismatch
+    }
+    guard source != destination, data != previous else { return }
     try preparePrivateDirectory(at: destination.deletingLastPathComponent())
     try replacePrivateFile(data, at: destination)
   }

@@ -54,20 +54,20 @@ chmod 755 "$recovery_helper"
 
 signing_identity="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Apple Development:/{print $2; exit}')"
 if [[ -n "$signing_identity" ]]; then
-  codesign --force --sign "$signing_identity" --timestamp=none --options runtime "$recovery_helper" >/dev/null
+  codesign --force --sign "$signing_identity" --identifier "SwitchGPTRecoverySupervisor" --timestamp=none --options runtime "$recovery_helper" >/dev/null
   signing_team="$(codesign -dvv "$recovery_helper" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
   if [[ -z "$signing_team" ]]; then
     echo "Signed recovery helper has no TeamIdentifier" >&2
     exit 1
   fi
   /usr/bin/plutil -replace SwitchGPTHostTeamIdentifier -string "$signing_team" "$info_plist"
-  codesign --force --sign "$signing_identity" --timestamp=none --options runtime "$app_binary" >/dev/null
+  codesign --force --sign "$signing_identity" --identifier "$bundle_id" --timestamp=none --options runtime "$app_binary" >/dev/null
   codesign --force --sign "$signing_identity" --timestamp=none --options runtime "$app_bundle" >/dev/null
   echo "Signed with Apple Development identity"
 else
-  /usr/bin/plutil -replace SwitchGPTHostTeamIdentifier -string "" "$info_plist"
-  codesign --force --sign - --timestamp=none "$recovery_helper" >/dev/null
-  codesign --force --sign - --timestamp=none "$app_binary" >/dev/null
+  /usr/bin/plutil -replace SwitchGPTHostTeamIdentifier -string "SWITCHGPT-LOCAL-ADHOC" "$info_plist"
+  codesign --force --sign - --identifier "SwitchGPTRecoverySupervisor" --timestamp=none "$recovery_helper" >/dev/null
+  codesign --force --sign - --identifier "$bundle_id" --timestamp=none "$app_binary" >/dev/null
   codesign --force --sign - --timestamp=none "$app_bundle" >/dev/null
   echo "Apple Development identity unavailable; using ad hoc signing for local launch"
 fi

@@ -82,6 +82,11 @@ public final class SwitchGPTAppStore {
   private let accountProbe: any ReadOnlyAccountProbing
   private let accountOnboarder: any ManagedAccountOnboarding
   private let persistence: any PreviewStatePersisting
+  private let credentialSynchronizer: any ActiveAccountCredentialSynchronizing
+
+  public var allAccountsTokenActivity: AllAccountsTokenActivity {
+    AllAccountsTokenActivity(accounts: accounts, excluding: quotaRefreshFailedAccountIDs)
+  }
 
   public init(
     quotaReader: any QuotaReading = MixedQuotaReader(),
@@ -89,7 +94,9 @@ public final class SwitchGPTAppStore {
     accountOnboarder: any ManagedAccountOnboarding = CodexManagedAccountOnboarder(),
     now: Date = Date(),
     persistence: any PreviewStatePersisting = NoopPreviewStateStore(),
-    initialAccounts: [AccountRecord]? = nil
+    initialAccounts: [AccountRecord]? = nil,
+    credentialSynchronizer: any ActiveAccountCredentialSynchronizing =
+      NoopActiveAccountCredentialSynchronizer()
   ) {
     let defaultAccounts = initialAccounts ?? MockAccountCatalog.accounts(now: now)
     let startsWithoutDemoAccounts = initialAccounts?.isEmpty == true
@@ -127,6 +134,7 @@ public final class SwitchGPTAppStore {
     self.accountProbe = accountProbe
     self.accountOnboarder = accountOnboarder
     self.persistence = persistence
+    self.credentialSynchronizer = credentialSynchronizer
     self.lastPersistenceError = nil
 
     if startsWithoutDemoAccounts, migratedMockAccounts {
@@ -364,6 +372,7 @@ public final class SwitchGPTAppStore {
   /// isolated account must never imply that the desktop client switched to that account.
   public func reconcileCurrentAccountWithDesktop() async {
     guard !activity.isBusy else { return }
+    synchronizeActiveAccountCredentials()
     let activeHome = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".codex", isDirectory: true)
       .path
@@ -466,6 +475,7 @@ public final class SwitchGPTAppStore {
     if reportsActivity {
       activity = .refreshing
     }
+    synchronizeActiveAccountCredentials()
     let snapshotsByAccount: [AccountID: AccountQuotaSnapshot]
     do {
       snapshotsByAccount = try await quotaReader.fetchSnapshots(for: accounts)
@@ -541,6 +551,7 @@ public final class SwitchGPTAppStore {
     else { return false }
 
     activity = .refreshing
+    synchronizeActiveAccountCredentials()
     do {
       let snapshots = try await quotaReader.fetchSnapshots(for: [account])
       guard let snapshot = snapshots[accountID],
@@ -576,6 +587,18 @@ public final class SwitchGPTAppStore {
       quotaRefreshFailedAccountIDs.insert(accountID)
       activity = .failure(message: "Could not refresh the selected account")
       return false
+    }
+  }
+
+  private func synchronizeActiveAccountCredentials() {
+    do {
+      if let accountID = try credentialSynchronizer.synchronize(accounts: accounts) {
+        currentAccountID = accountID
+      }
+    } catch {
+      // Keep querying saved profiles when the desktop is signed out or unavailable.
+      // Never log authentication contents or raw service responses.
+      NSLog("[SwitchGPT/account] active credential synchronization failed")
     }
   }
 

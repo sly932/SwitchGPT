@@ -1,28 +1,51 @@
-import Charts
 import SwiftUI
 import SwitchGPTAppCore
 
 struct TokenActivityCardView: View {
-  let account: AccountRecord
+  let activity: AccountTokenActivity?
+  private let title: String
+  private let subtitle: String
+  private let badge: String
+  private let wasLoaded: Bool
+  private let allAccounts: AllAccountsTokenActivity?
+
+  init(account: AccountRecord) {
+    activity = account.usage.tokenActivity
+    title = L10n.string("Token 活动")
+    subtitle = L10n.string("当前所选账号的 Codex 用量")
+    badge = L10n.string("Codex 账号用量")
+    wasLoaded = account.usage.tokenActivityWasLoaded
+    allAccounts = nil
+  }
+
+  init(allAccounts: AllAccountsTokenActivity) {
+    self.allAccounts = allAccounts
+    activity = allAccounts.activity
+    title = L10n.string("全部账号 Token 活动")
+    subtitle = L10n.format("%d 个账号 · %d 个有 Token 数据",
+      allAccounts.eligibleAccountCount, allAccounts.contributingAccountCount)
+      + (allAccounts.excludedAccountCount > 0
+        ? L10n.format(" · %d 个读取失败账号未计入", allAccounts.excludedAccountCount) : "")
+    badge = L10n.string("全部账号汇总")
+    wasLoaded = true
+  }
 
   @State private var mode: ActivityMode = .daily
-  @State private var hoveredDate: String?
+  @State private var hoveredCell: String?
   @Environment(\.colorScheme) private var colorScheme
-
-  private var activity: AccountTokenActivity? { account.usage.tokenActivity }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .top) {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Token 活动")
+          Text(title)
             .font(.system(size: 14, weight: .semibold))
-          Text("当前所选账号的 Codex 用量")
+          Text(subtitle)
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
         }
         Spacer()
-        Text("Codex 账号用量")
+        Text(badge)
           .font(.system(size: 11))
           .foregroundStyle(.tertiary)
       }
@@ -32,12 +55,25 @@ struct TokenActivityCardView: View {
         chartSection(activity)
       } else {
         ContentUnavailableView(
-          L10n.string(account.usage.tokenActivityWasLoaded ? "暂无 Token 数据" : "暂时无法读取 Token 活动"),
+          L10n.string(wasLoaded ? "暂无 Token 数据" : "暂时无法读取 Token 活动"),
           systemImage: "chart.bar.xaxis",
-          description: Text("稍后点击右上角的刷新按钮重试。")
+          description: Text(L10n.string(allAccounts == nil
+            ? "稍后点击右上角的刷新按钮重试。" : "请在账号用量页或菜单栏刷新用量，汇总将随之更新。"))
         )
         .frame(maxWidth: .infinity)
         .frame(minHeight: 150)
+      }
+
+      if let allAccounts {
+        VStack(alignment: .leading, spacing: 4) {
+          if allAccounts.hasMissingData {
+            Text("部分指标或每日记录未返回，仅汇总已有数据。")
+          }
+          Text("各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。")
+          Text("随其他位置的用量刷新更新。")
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
       }
     }
     .padding(18)
@@ -116,14 +152,7 @@ struct TokenActivityCardView: View {
       }
 
       if let buckets = activity.dailyUsageBuckets, !buckets.isEmpty {
-        switch mode {
-        case .daily:
-          dailyHeatmap(buckets)
-        case .weekly:
-          weeklyChart(buckets)
-        case .cumulative:
-          cumulativeChart(buckets)
-        }
+        activityHeatmap(buckets)
       } else {
         Text("服务端尚未返回每日活动记录")
           .foregroundStyle(.secondary)
@@ -134,14 +163,21 @@ struct TokenActivityCardView: View {
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
     }
+    .onChange(of: mode) { _, _ in hoveredCell = nil }
   }
 
-  private func dailyHeatmap(_ buckets: [AccountTokenActivity.DailyBucket]) -> some View {
+  private func activityHeatmap(_ buckets: [AccountTokenActivity.DailyBucket]) -> some View {
     let byDate = Dictionary(
       buckets.map { ($0.startDate, $0.tokens) },
       uniquingKeysWith: { _, latest in latest })
+    let byWeek = Dictionary(uniqueKeysWithValues: weeklyPoints(buckets).map { ($0.date, $0.tokens) })
+    let cumulative = Dictionary(uniqueKeysWithValues: cumulativePoints(buckets).map { ($0.date, $0.tokens) })
     let weeks = makeWeeks()
-    let peak = max(buckets.map(\.tokens).max() ?? 0, 1)
+    let peak: Int = switch mode {
+    case .daily: max(byDate.values.max() ?? 0, 1)
+    case .weekly: max(byWeek.values.max() ?? 0, 1)
+    case .cumulative: max(cumulative.values.max() ?? 0, 1)
+    }
 
     return VStack(alignment: .leading, spacing: 10) {
       ScrollViewReader { proxy in
@@ -150,34 +186,37 @@ struct TokenActivityCardView: View {
             ForEach(weeks, id: \.startDate) { week in
               VStack(spacing: 4) {
                 ForEach(week.days, id: \.self) { date in
-                  let value = byDate[date]
+                  let value: Int? = switch mode {
+                  case .daily: byDate[date]
+                  case .weekly: byWeek[week.startDate]
+                  case .cumulative: cumulative[date]
+                  }
                   Button {
-                    hoveredDate = date
+                    hoveredCell = date
                   } label: {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                       .fill(heatColor(value, peak: peak))
                       .frame(width: 14, height: 14)
                       .overlay {
-                        if hoveredDate == date {
+                        if hoveredCell == date {
                           RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .stroke(ChatGPTStyle.actionBlue, lineWidth: 2)
                         }
                       }
                       .contentShape(Rectangle())
+                  }
+                  .buttonStyle(.plain)
+                  .anchorPreference(key: CellAnchorPreference.self, value: .bounds) { [date: $0] }
+                  .onHover { isHovered in
+                    if isHovered {
+                      hoveredCell = date
+                    } else if hoveredCell == date {
+                      hoveredCell = nil
                     }
-                    .buttonStyle(.plain)
-                    .onHover { isHovered in
-                      if isHovered {
-                        hoveredDate = date
-                      } else if hoveredDate == date {
-                        hoveredDate = nil
-                      }
-                    }
-                    .help(dayValue(date: date, tokens: value, exact: true))
-                  .accessibilityLabel(
-                    dayValue(date: date, tokens: value, exact: true))
+                  }
+                  .accessibilityLabel(valueLabel(date: date, weekStart: week.startDate, tokens: value))
                 }
-        Text(week.monthLabel)
+                Text(week.monthLabel)
                   .font(.system(size: 10))
                   .foregroundStyle(.secondary)
                   .frame(height: 16)
@@ -187,21 +226,39 @@ struct TokenActivityCardView: View {
           }
           .padding(2)
         }
+        .overlayPreferenceValue(CellAnchorPreference.self) { anchors in
+          GeometryReader { geometry in
+            if let hoveredCell, let anchor = anchors[hoveredCell],
+              let week = weeks.first(where: { $0.days.contains(hoveredCell) }) {
+              let value: Int? = switch mode {
+              case .daily: byDate[hoveredCell]
+              case .weekly: byWeek[week.startDate]
+              case .cumulative: cumulative[hoveredCell]
+              }
+              let rect = geometry[anchor]
+              let tipWidth = min(260.0, max(geometry.size.width - 8, 120))
+              Text(valueLabel(date: hoveredCell, weekStart: week.startDate, tokens: value))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 10)
+                .frame(width: tipWidth, height: 30)
+                .background(Color(red: 0.11, green: 0.13, blue: 0.15),
+                  in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .shadow(color: .black.opacity(0.18), radius: 9, y: 4)
+                .position(
+                  x: min(max(rect.midX, tipWidth / 2), max(geometry.size.width - tipWidth / 2, tipWidth / 2)),
+                  y: rect.minY - 19)
+                .allowsHitTesting(false)
+            }
+          }
+        }
         .onAppear {
           if let lastWeek = weeks.last {
             proxy.scrollTo(lastWeek.startDate, anchor: .trailing)
           }
         }
-      }
-
-      if let hoveredDate {
-        Text(dayValue(date: hoveredDate, tokens: byDate[hoveredDate], exact: false))
-        .font(.system(size: 12))
-        .foregroundStyle(.primary)
-      } else {
-        Text("悬浮在日期方格上查看数值")
-          .font(.system(size: 12))
-          .foregroundStyle(.secondary)
       }
 
       HStack(spacing: 5) {
@@ -231,70 +288,21 @@ struct TokenActivityCardView: View {
     case .daily:
       "每日图显示最近一年。未返回的日期不按零用量计算。"
     case .weekly:
-      "每周用量只汇总该周已返回的每日记录；没有记录的周不显示。"
+      "每列代表一周，只汇总该周已返回的每日记录；没有记录的周显示浅灰。"
     case .cumulative:
-      "累计图只相加已返回的每日记录，可能小于上方的全生命周期总量。"
+      "每格代表截至当天已返回记录的累计值；没有记录的日期显示浅灰。此值可能小于上方的全生命周期总量。"
     }
   }
 
-  private func weeklyChart(_ buckets: [AccountTokenActivity.DailyBucket]) -> some View {
-    let points = weeklyPoints(buckets)
-    let upperBound = Double(max(points.map(\.tokens).max() ?? 0, 1)) * 1.15
-    return VStack(spacing: 4) {
-      Chart(points) { point in
-        BarMark(x: .value(L10n.string("周"), point.date), y: .value("Token", point.tokens))
-          .foregroundStyle(ChatGPTStyle.actionBlue.gradient)
-      }
-      .chartXAxis(.hidden)
-      .chartYScale(domain: 0...upperBound)
-      .chartYAxis { tokenAxis }
-      .frame(height: 166)
-      chartDateRange(points)
+  private func valueLabel(date: String, weekStart: String, tokens: Int?) -> String {
+    let label: String = switch mode {
+    case .daily: date
+    case .weekly: AppLanguage.selected.resourceCode == "zh-Hans"
+      ? weekStart + " " + L10n.string("当周") : L10n.string("当周") + " " + weekStart
+    case .cumulative: L10n.string("截至") + " " + date
     }
-    .accessibilityLabel(L10n.format("Weekly token activity, %d recorded weeks", points.count))
-  }
-
-  private func cumulativeChart(_ buckets: [AccountTokenActivity.DailyBucket]) -> some View {
-    let points = cumulativePoints(buckets)
-    let upperBound = Double(max(points.map(\.tokens).max() ?? 0, 1)) * 1.15
-    return VStack(spacing: 4) {
-      Chart(points) { point in
-        LineMark(x: .value(L10n.string("日期"), point.date), y: .value("Token", point.tokens))
-          .foregroundStyle(ChatGPTStyle.actionBlue)
-        PointMark(x: .value(L10n.string("日期"), point.date), y: .value("Token", point.tokens))
-          .foregroundStyle(ChatGPTStyle.actionBlue)
-      }
-      .chartXAxis(.hidden)
-      .chartYScale(domain: 0...upperBound)
-      .chartYAxis { tokenAxis }
-      .frame(height: 166)
-      chartDateRange(points)
-    }
-    .accessibilityLabel(L10n.format("Cumulative token activity, %d recorded days", points.count))
-  }
-
-  private var tokenAxis: some AxisContent {
-    AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
-      AxisGridLine()
-      AxisTick()
-      AxisValueLabel {
-        if let count = value.as(Int.self) {
-          Text(compactNumber(count))
-        } else if let count = value.as(Double.self) {
-          Text(compactNumber(Int(count)))
-        }
-      }
-    }
-  }
-
-  private func chartDateRange(_ points: [ChartPoint]) -> some View {
-    HStack {
-      Text(points.first?.date ?? "")
-      Spacer()
-      Text(points.last?.date ?? "")
-    }
-    .font(.system(size: 10))
-    .foregroundStyle(.secondary)
+    guard let tokens else { return label + " · " + L10n.string("未返回数据") }
+    return label + " · " + compactNumber(tokens) + " Token"
   }
 
   private func metrics(for activity: AccountTokenActivity) -> [Metric] {
@@ -408,15 +416,6 @@ struct TokenActivityCardView: View {
     return numberString(value)
   }
 
-  private func dayValue(date: String, tokens: Int?, exact: Bool) -> String {
-    guard let tokens else { return "\(date) · " + L10n.string("未返回数据") }
-    let amount = compactNumber(tokens)
-    if exact, amount != numberString(tokens) {
-      return "\(date) · \(amount) Token (\(numberString(tokens)))"
-    }
-    return "\(date) · \(amount) Token"
-  }
-
   private func compact(_ value: Double) -> String {
     let digits = value < 10 ? 2 : value < 100 ? 1 : 0
     let rounded = String(format: "%.*f", digits, value)
@@ -448,6 +447,13 @@ struct TokenActivityCardView: View {
     let date: String
     let tokens: Int
     var id: String { date }
+  }
+
+  private struct CellAnchorPreference: PreferenceKey {
+    static let defaultValue: [String: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+      value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
   }
 
   private enum ActivityMode: String, CaseIterable, Identifiable {

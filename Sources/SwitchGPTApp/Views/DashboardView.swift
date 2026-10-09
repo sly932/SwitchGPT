@@ -11,6 +11,7 @@ struct DashboardView: View {
   @State private var pendingRealSwitch: RealSwitchPlan?
   @State private var pendingRemoval: AccountRecord?
   @State private var selectedAccountID: AccountID?
+  @State private var showsAccountOverview = false
   @State private var accountSignInTask: Task<Void, Never>?
   @State private var windowTopInset: CGFloat = 0
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
@@ -59,6 +60,7 @@ struct DashboardView: View {
         listPreferences: listPreferences,
         resetTimePreferences: resetTimePreferences,
         selection: $selectedAccountID,
+        showsAccountOverview: $showsAccountOverview,
         topInset: windowTopInset,
         onAddOrCancel: addOrCancelAccountSignIn
       )
@@ -98,7 +100,7 @@ struct DashboardView: View {
       await updateStore.checkIfStale()
     }
     .onChange(of: store.currentAccountID) { _, newValue in
-      selectedAccountID = newValue
+      if !showsAccountOverview { selectedAccountID = newValue }
     }
     .onDisappear {
       accountSignInTask?.cancel()
@@ -154,6 +156,7 @@ struct DashboardView: View {
     DashboardDetailView(
       store: store,
       account: selectedAccount,
+      showsAccountOverview: showsAccountOverview,
       isCurrent: selectedAccountIsCurrent,
       allowsCurrentAction: selectedAccountAllowsCurrentAction,
       resetTimeFormat: resetTimePreferences.format,
@@ -225,6 +228,7 @@ struct DashboardView: View {
     accountSignInTask = Task {
       if let newID = await store.signInAccount() {
         selectedAccountID = newID
+        showsAccountOverview = false
       }
       accountSignInTask = nil
     }

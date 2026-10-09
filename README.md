@@ -4,9 +4,9 @@ SwitchGPT 是一款面向 macOS 的轻量工具：把你本机使用的多个 Ch
 
 它适合需要在不同 ChatGPT 账号之间继续 Work/Codex 工作、但不想反复手动查额度和登录的人。账号添加使用官方登录流程；SwitchGPT 不要求你填写 API key，也不是云端账号同步服务。
 
-[下载 macOS 版](https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.2/SwitchGPT-0.2.2-macOS-arm64.zip) · [查看 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.2) · [产品介绍](https://switchgpt.vercel.app)
+[下载 macOS 版](https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.3/SwitchGPT-0.2.3-macOS-arm64.zip) · [查看 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.3) · [产品介绍](https://switchgpt.vercel.app)
 
-> 当前公开版本为 `0.2.2` 正式版。真实的桌面账号切换仍保持实验性质，每次操作都会单独确认。
+> 当前公开版本为 `0.2.3` 正式版。真实的桌面账号切换仍保持实验性质，每次操作都会单独确认。
 
 ## 它能做什么
 
@@ -39,22 +39,22 @@ SwitchGPT 是一款面向 macOS 的轻量工具：把你本机使用的多个 Ch
 set -euo pipefail
 cd ~/Downloads
 
-curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.2/SwitchGPT-0.2.2-macOS-arm64.zip
-curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.2/SwitchGPT-0.2.2-macOS-arm64.zip.sha256
-shasum -a 256 -c SwitchGPT-0.2.2-macOS-arm64.zip.sha256
+curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.3/SwitchGPT-0.2.3-macOS-arm64.zip
+curl -fL -O https://github.com/HuipengXu/SwitchGPT/releases/download/v0.2.3/SwitchGPT-0.2.3-macOS-arm64.zip.sha256
+shasum -a 256 -c SwitchGPT-0.2.3-macOS-arm64.zip.sha256
 
 mkdir -p "$HOME/Applications"
-ditto -x -k "SwitchGPT-0.2.2-macOS-arm64.zip" "$HOME/Applications"
+ditto -x -k "SwitchGPT-0.2.3-macOS-arm64.zip" "$HOME/Applications"
 open "$HOME/Applications/SwitchGPT.app"
 ```
 
 ### 图形界面安装（简版）
 
-1. 从 [v0.2.2 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.2) 下载 ZIP 和 `.sha256` 文件。
+1. 从 [v0.2.3 Release](https://github.com/HuipengXu/SwitchGPT/releases/tag/v0.2.3) 下载 ZIP 和 `.sha256` 文件。
 2. 在下载目录执行：
 
 ```sh
-shasum -a 256 -c SwitchGPT-0.2.2-macOS-arm64.zip.sha256
+shasum -a 256 -c SwitchGPT-0.2.3-macOS-arm64.zip.sha256
 ```
 
 3. 校验显示 `OK` 后，双击 ZIP，把 `SwitchGPT.app` 拖到“应用程序”。
@@ -72,6 +72,8 @@ Release 页面同时提供由发布流程在公证和 staple 后生成的 SHA-25
 ### 查看额度
 
 Dashboard 会显示已添加账号的套餐、邮箱、Work/Codex 使用比例、credits，以及使用限额重置库存。重置库存默认折叠，仅显示可用总数和最近已知到期时间；展开后按到期时间分组，较长列表通过独立详情窗口查看。点击 **Refresh** 可读取最新状态；菜单栏入口也可以快速查看额度和账号列表。
+
+打开 Dashboard 或刷新用量时，会先核对桌面当前账号，并将它的最新登录凭证同步到该账号已有的 SwitchGPT 托管档案。切走前也保存离开账号的最新凭证；其它账号和外部只读档案不会因此被替换。切换完成后的刷新会再次捕获目标账号当前持有的凭证，但切换本身不保证服务端签发新凭证。
 
 额度是从各账号当前的官方登录状态读取的本地快照，可能受到网络、登录状态和服务端更新延迟影响。它不是对未来可用额度的保证。
 

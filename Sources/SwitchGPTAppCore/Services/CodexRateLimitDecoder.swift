@@ -26,6 +26,19 @@ public enum CodexRateLimitDecoder {
     )
   }
 
+  /// Uses the same live Codex snapshot as the quota windows. Account metadata can
+  /// still contain the plan embedded in an older login credential.
+  static func decodePlanName(from data: Data, fallback: String) throws -> String {
+    guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      throw QuotaReadingError.invalidProtocolResponse
+    }
+    let limit = selectLimit(from: root)
+    guard let rawPlan = (limit["planType"] as? String) ?? (limit["plan_type"] as? String),
+      !rawPlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else { return fallback }
+    return ChatGPTMembership.displayName(for: rawPlan)
+  }
+
   private static func selectLimit(from root: [String: Any]) -> [String: Any] {
     if let byID = root["rateLimitsByLimitId"] as? [String: Any],
       let codex = byID["codex"] as? [String: Any]
