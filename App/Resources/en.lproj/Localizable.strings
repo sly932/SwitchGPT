@@ -31,3 +31,14 @@
 "日期" = "Date";
 "周" = "Week";
 "未返回数据" = "No data returned";
+
+/* All accounts token overview */
+"账号总览" = "Account overview";
+"全部账号 Token 活动" = "All accounts token activity";
+"%d 个账号 · %d 个有 Token 数据" = "%d accounts · %d with token data";
+" · %d 个读取失败账号未计入" = " · %d accounts with failed reads excluded";
+"全部账号汇总" = "All accounts total";
+"请在账号用量页或菜单栏刷新用量，汇总将随之更新。" = "Refresh usage from an account page or the menu bar to update this total.";
+"部分指标或每日记录未返回，仅汇总已有数据。" = "Some metrics or daily records are missing. Only returned data is summed.";
+"各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。" = "Each metric sums the corresponding account values, including peaks, turn durations, and streak days.";
+"随其他位置的用量刷新更新。" = "Updates when usage is refreshed elsewhere.";

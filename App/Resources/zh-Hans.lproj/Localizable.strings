@@ -203,3 +203,14 @@
 "The independent recovery process could not be verified or completed." = "独立恢复进程未能完成验证或执行。";
 "The switch did not complete; SwitchGPT attempted to restore the original account." = "切换未完成；SwitchGPT 已尝试还原原账号。";
 "%@: %@" = "%@：%@";
+
+/* All accounts token overview */
+"账号总览" = "账号总览";
+"全部账号 Token 活动" = "全部账号 Token 活动";
+"%d 个账号 · %d 个有 Token 数据" = "%d 个账号 · %d 个有 Token 数据";
+" · %d 个读取失败账号未计入" = " · %d 个读取失败账号未计入";
+"全部账号汇总" = "全部账号汇总";
+"请在账号用量页或菜单栏刷新用量，汇总将随之更新。" = "请在账号用量页或菜单栏刷新用量，汇总将随之更新。";
+"部分指标或每日记录未返回，仅汇总已有数据。" = "部分指标或每日记录未返回，仅汇总已有数据。";
+"各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。" = "各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。";
+"随其他位置的用量刷新更新。" = "随其他位置的用量刷新更新。";

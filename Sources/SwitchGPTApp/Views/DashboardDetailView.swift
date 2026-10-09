@@ -4,6 +4,7 @@ import SwitchGPTAppCore
 struct DashboardDetailView: View {
   let store: SwitchGPTAppStore
   let account: AccountRecord?
+  let showsAccountOverview: Bool
   let isCurrent: Bool
   let allowsCurrentAction: Bool
   let resetTimeFormat: ResetTimeFormat
@@ -20,7 +21,10 @@ struct DashboardDetailView: View {
 
       ScrollView {
         VStack(alignment: .leading, spacing: 22) {
-          if let account {
+          if showsAccountOverview {
+            TokenActivityCardView(allAccounts: store.allAccountsTokenActivity)
+              .id("all-accounts-token-activity")
+          } else if let account {
             accountHeader(account)
 
             if !isReady {
@@ -76,22 +80,24 @@ struct DashboardDetailView: View {
           .accessibilityLabel(refreshStatusText)
       }
 
-      Button {
-        refreshUsage()
-      } label: {
-        if isRefreshing {
-          ProgressView()
-            .controlSize(.small)
-            .tint(ChatGPTStyle.actionBlue)
-        } else {
-          Image(systemName: "arrow.clockwise")
-            .foregroundStyle(ChatGPTStyle.actionBlue)
+      if !showsAccountOverview {
+        Button {
+          refreshUsage()
+        } label: {
+          if isRefreshing {
+            ProgressView()
+              .controlSize(.small)
+              .tint(ChatGPTStyle.actionBlue)
+          } else {
+            Image(systemName: "arrow.clockwise")
+              .foregroundStyle(ChatGPTStyle.actionBlue)
+          }
         }
+        .buttonStyle(ChatGPTIconButtonStyle())
+        .help(L10n.string(isRefreshing ? "Refreshing usage" : "Refresh usage"))
+        .accessibilityLabel(L10n.string(isRefreshing ? "Refreshing usage" : "Refresh usage"))
+        .disabled(isRefreshing || store.activity.isBusy)
       }
-      .buttonStyle(ChatGPTIconButtonStyle())
-      .help(L10n.string(isRefreshing ? "Refreshing usage" : "Refresh usage"))
-      .accessibilityLabel(L10n.string(isRefreshing ? "Refreshing usage" : "Refresh usage"))
-      .disabled(isRefreshing || store.activity.isBusy)
     }
     .padding(.trailing, ChatGPTStyle.toolbarHorizontalInset)
     .frame(height: ChatGPTStyle.toolbarHeight)
@@ -99,10 +105,10 @@ struct DashboardDetailView: View {
 
   private var toolbarTitle: some View {
     HStack(spacing: 10) {
-      Text("Usage")
+      Text(L10n.string(showsAccountOverview ? "账号总览" : "Usage"))
         .font(.system(size: 14, weight: .semibold))
 
-      if let account {
+      if !showsAccountOverview, let account {
         Text("·")
           .foregroundStyle(.tertiary)
         Text(account.accountLabel)
