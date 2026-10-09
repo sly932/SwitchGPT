@@ -31,6 +31,12 @@
 "Updated" = "已更新";
 "Partially updated" = "部分更新";
 "Refresh failed" = "刷新失败";
+"This account could not update its usage. Previous usage is shown. If its login expired, sign in again." = "此账号用量更新失败，当前显示上次用量。如果登录已过期，请重新登录。";
+"Sign in again" = "重新登录此账号";
+"The selected account is unavailable" = "所选账号不可用";
+"Signed in to a different account. Please use the selected account." = "登录的不是所选账号，请使用该账号重新登录。";
+"Could not save the updated account" = "无法保存更新后的账号";
+"Account sign-in updated" = "账号登录信息已更新";
 "Weekly limit" = "每周限额";
 "5-hour limit" = "5 小时限额";
 "% left" = "% 剩余";

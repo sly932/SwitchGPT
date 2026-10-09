@@ -62,7 +62,7 @@ struct DashboardView: View {
         selection: $selectedAccountID,
         showsAccountOverview: $showsAccountOverview,
         topInset: windowTopInset,
-        onAddOrCancel: addOrCancelAccountSignIn
+        onAddOrCancel: { addOrCancelAccountSignIn() }
       )
       .id(languageRawValue)
       .frame(width: ChatGPTStyle.sidebarWidth)
@@ -165,6 +165,9 @@ struct DashboardView: View {
           requestSwitch(to: selectedAccount)
         }
       },
+      onReauthenticate: { accountID in
+        addOrCancelAccountSignIn(replacing: accountID)
+      },
       onRemove: onRemoveSelectedAccount
     )
     .id(languageRawValue)
@@ -219,14 +222,14 @@ struct DashboardView: View {
     }
   }
 
-  private func addOrCancelAccountSignIn() {
+  private func addOrCancelAccountSignIn(replacing accountID: AccountID? = nil) {
     if store.accountOnboardingActivity.isInProgress {
       accountSignInTask?.cancel()
       return
     }
     guard accountSignInTask == nil, !store.activity.blocksAccountOnboarding else { return }
     accountSignInTask = Task {
-      if let newID = await store.signInAccount() {
+      if let newID = await store.signInAccount(replacing: accountID) {
         selectedAccountID = newID
         showsAccountOverview = false
       }

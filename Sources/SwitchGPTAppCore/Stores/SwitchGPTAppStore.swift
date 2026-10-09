@@ -157,10 +157,16 @@ public final class SwitchGPTAppStore {
   }
 
   @discardableResult
-  public func signInAccount() async -> AccountID? {
+  public func signInAccount(replacing accountID: AccountID? = nil) async -> AccountID? {
     guard !accountOnboardingActivity.isInProgress,
       !activity.blocksAccountOnboarding
     else { return nil }
+    if let accountID,
+      !accounts.contains(where: { $0.id == accountID && $0.identityHash != nil })
+    {
+      accountOnboardingActivity = .failure(message: "The selected account is unavailable")
+      return nil
+    }
     let realAccountCount = accounts.filter {
       if case .codexHome = $0.source { return true }
       return false
@@ -174,10 +180,49 @@ public final class SwitchGPTAppStore {
       try Task.checkCancellation()
       let probe = try await accountProbe.probe(codexHomePath: path)
       try Task.checkCancellation()
-      guard !accounts.contains(where: { $0.identityHash == probe.identityHash }) else {
+      if let accountID,
+        accounts.first(where: { $0.id == accountID })?.identityHash != probe.identityHash
+      {
         try? accountOnboarder.discardManagedAccount(at: path)
-        accountOnboardingActivity = .failure(message: "This account is already configured")
+        accountOnboardingActivity = .failure(
+          message: "Signed in to a different account. Please use the selected account."
+        )
         return nil
+      }
+      if let index = accounts.firstIndex(where: { $0.identityHash == probe.identityHash }) {
+        let previous = accounts[index]
+        accounts[index] = AccountRecord(
+          id: previous.id,
+          displayName: previous.displayName,
+          email: probe.email ?? previous.email,
+          detail: previous.detail,
+          planName: probe.planName,
+          symbolName: previous.symbolName,
+          accent: previous.accent,
+          usage: probe.usage,
+          source: .codexHome(path: path),
+          identityHash: previous.identityHash,
+          usageRefreshedAt: Date()
+        )
+        if quotaRefreshFailedAccountIDs.subtracting([previous.id]).isEmpty {
+          lastRefreshedAt = Date()
+        }
+        guard persistState() else {
+          accounts[index] = previous
+          lastRefreshedAt = previousLastRefreshedAt
+          try? accountOnboarder.discardManagedAccount(at: path)
+          accountOnboardingActivity = .failure(message: "Could not save the updated account")
+          return nil
+        }
+        quotaRefreshFailedAccountIDs.remove(previous.id)
+        if case .codexHome(let oldPath) = previous.source, oldPath != path {
+          try? accountOnboarder.discardManagedAccount(at: oldPath)
+        }
+        if !activity.isBusy {
+          activity = .success(message: "Account sign-in updated")
+        }
+        accountOnboardingActivity = .idle
+        return previous.id
       }
       let fallbackName = "Account \(realAccountCount + 1)"
       let account = AccountRecord(
