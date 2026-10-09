@@ -7,6 +7,7 @@ struct DashboardDetailView: View {
   let isCurrent: Bool
   let allowsCurrentAction: Bool
   let onPreviewSwitch: () -> Void
+  let onReauthenticate: (AccountID) -> Void
   let onRemove: (() -> Void)?
 
   @Environment(\.colorScheme) private var colorScheme
@@ -22,7 +23,7 @@ struct DashboardDetailView: View {
           if let account {
             accountHeader(account)
 
-            if !isReady {
+            if selectedAccountRefreshFailed || !isReady {
               activityBanner
             }
 
@@ -241,13 +242,19 @@ struct DashboardDetailView: View {
 
   private var activityBanner: some View {
     HStack(spacing: 10) {
-      Image(systemName: activitySymbol)
+      Image(systemName: selectedAccountRefreshFailed ? "exclamationmark.triangle.fill" : activitySymbol)
         .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(activityColor)
-      Text(store.activity.message)
+        .foregroundStyle(selectedAccountRefreshFailed ? ChatGPTStyle.warningOrange : activityColor)
+      Text(selectedAccountRefreshFailed
+        ? "This account could not update its usage. Previous usage is shown. If its login expired, sign in again."
+        : store.activity.message)
         .font(.system(size: 13))
       Spacer()
-      if !store.activity.isBusy {
+      if selectedAccountRefreshFailed, let account {
+        Button("Sign in again") { onReauthenticate(account.id) }
+          .buttonStyle(ChatGPTSecondaryButtonStyle())
+          .disabled(store.accountOnboardingActivity.isInProgress || store.activity.blocksAccountOnboarding)
+      } else if !store.activity.isBusy {
         Button("Dismiss") {
           store.resetActivity()
         }
@@ -259,13 +266,17 @@ struct DashboardDetailView: View {
     .padding(.horizontal, 14)
     .frame(minHeight: 42)
     .background(
-      ChatGPTStyle.semanticFill(activityColor),
+      ChatGPTStyle.semanticFill(selectedAccountRefreshFailed ? ChatGPTStyle.warningOrange : activityColor),
       in: RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)
     )
     .overlay {
       RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)
-        .stroke(ChatGPTStyle.semanticBorder(activityColor), lineWidth: 1)
+        .stroke(ChatGPTStyle.semanticBorder(selectedAccountRefreshFailed ? ChatGPTStyle.warningOrange : activityColor), lineWidth: 1)
     }
+  }
+
+  private var selectedAccountRefreshFailed: Bool {
+    account.map { store.quotaRefreshFailedAccountIDs.contains($0.id) } ?? false
   }
 
   private var isReady: Bool {
