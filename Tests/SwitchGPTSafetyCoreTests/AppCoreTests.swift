@@ -220,6 +220,12 @@ final class AppCoreTests: XCTestCase {
     XCTAssertEqual(snapshots[usageUnavailable.id]?.usage.weekly.usedPercent, 34)
     XCTAssertNil(snapshots[usageUnavailable.id]?.usage.tokenActivity)
     XCTAssertEqual(snapshots[usageUnavailable.id]?.usage.tokenActivityWasLoaded, false)
+    let quotaOnly = try await CodexAppServerQuotaReader(
+      codexBinaryURL: binaryURL, timeout: .seconds(2), includeTokenActivity: false
+    ).fetchSnapshots(for: [healthy])
+    XCTAssertEqual(quotaOnly[healthy.id]?.usage.weekly.usedPercent, 34)
+    XCTAssertNil(quotaOnly[healthy.id]?.usage.tokenActivity)
+    XCTAssertEqual(quotaOnly[healthy.id]?.usage.tokenActivityWasLoaded, false)
   }
 
   func testTokenActivityDecoderPreservesUnknownFields() throws {

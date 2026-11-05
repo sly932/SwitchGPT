@@ -77,6 +77,59 @@ Dashboard 会显示已添加账号的套餐、邮箱、Work/Codex 使用比例�
 
 额度是从各账号当前的官方登录状态读取的本地快照，可能受到网络、登录状态和服务端更新延迟影响。它不是对未来可用额度的保证。
 
+### 命令行查询所有账号
+
+本地构建的应用包含 `Contents/Helpers/switchgpt`。安装此版本后，可创建命令入口：
+
+```sh
+./script/install-cli.sh
+switchgpt quota
+switchgpt usage
+switchgpt quota --cached
+```
+
+默认读取 `~/Library/Application Support/SwitchGPT-sly/preview-state.json` 中所有已添加账号，
+每次实时查询，不要求 Dashboard 正在运行。`--cached` 只读本地快照；CLI 不写回应用数据，
+也不切换桌面账号或同步当前桌面凭证。若账号在桌面重新登录后仍查询失败，先在应用中刷新以同步凭证。
+其他数据文件可用 `--state-file /绝对路径/preview-state.json` 指定；文件必须保持私有权限 `600`。
+没有保存文件时返回空数组；文件损坏或权限不安全时整条命令失败。
+
+| 命令 | 返回内容 |
+| --- | --- |
+| `quota` | 账号 ID、名称、邮箱、套餐；周额度和 5 小时额度的已用与剩余百分比、额度重置时间；credits；重置卡数量及已知到期明细 |
+| `usage` | `quota` 的全部内容，以及服务端提供的累计 Token、单日峰值、最长运行回合秒数、连续使用天数和每日 Token 记录 |
+
+`usage` 的“完整”指当前解码器支持的账号用量统计，不包含逐条对话、账单或服务端未提供的数据。
+额度为百分比，不推算剩余 Token 数。套餐是套餐名称，未提供订阅续费时间。
+所有时间使用 ISO 8601 UTC：`generatedAt` 是报告生成时间，`refreshedAt` 是账号成功读取时间，
+`quota.weekly.resetAt` 等是额度重置时间，`resetCredits.credits[].expiresAt` 是重置卡到期时间。
+
+标准输出只有 JSON，顶层包含 `schemaVersion`、`source`（`live` 或 `cache`）、`totalCount`、
+`errorCount`、`partialCount` 和按应用保存顺序排列的 `accounts`。每个账号独立返回：
+
+- `status: "ok"`：该命令的数据已读取。
+- `status: "partial"`：额度可用，Token 统计未能读取；保留额度并附 `token_activity_unavailable`。
+- `status: "error"`：账号不可用，附固定 `error.code` 和说明；不返回旧额度冒充实时结果。
+  此时账号名称、邮箱、套餐和 `refreshedAt` 仅来自已保存记录。
+
+字段缺失表示未知，不能当作零。`creditsWereLoaded`、`resetCreditsWereLoaded` 和
+`tokenActivityWasLoaded` 区分已读取与未读取；重置卡明细数量可能少于权威总数，
+不输出可用于兑换的标识。缓存没有成功刷新时间时返回 `no_cached_snapshot`。
+CLI 不输出凭证、身份校验哈希或账号目录；输出包含邮箱，保存或转发时请自行选择必要字段。
+
+单个账号失败，甚至全部账号失败，仍返回完整报告并退出 `0`，脚本应检查每项状态或计数。
+非法参数退出 `2`，账号列表读取或输出失败退出 `1`，错误 JSON 写入标准错误。
+最多同时查询 4 个账号，`--timeout 30` 可调整每账号超时（1–120 秒，默认 20）。
+
+```sh
+switchgpt quota | jq '.accounts[] | {email, status, planName, remaining: .quota.weekly.remainingPercent}'
+switchgpt usage --cached | jq '{source, totalCount, errorCount, partialCount}'
+```
+
+开发时可使用 `swift run switchgpt quota`；如未创建命令入口，也可直接运行
+`~/Applications/switchgpt-sly.app/Contents/Helpers/switchgpt quota`。
+本 CLI 随本地新构建交付，旧的公开 `0.2.3` 下载包不包含此命令。
+
 ### 应用更新
 
 SwitchGPT 每 24 小时最多检查一次官方 GitHub 仓库的最新正式 Release。只有版本号高于当前应用时，Dashboard 左下角才会出现更新提醒；测试版和草稿不会触发提醒。点击提醒会打开官方 Release 页面，关闭提醒则会将该版本延后 7 天。自动检查失败或离线时不会干扰额度刷新和账号切换。
