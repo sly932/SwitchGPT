@@ -36,7 +36,7 @@ app_binary="$app_contents/MacOS/SwitchGPT"
 recovery_helper="$app_contents/Helpers/SwitchGPTRecoverySupervisor"
 app_icon="$app_contents/Resources/AppIcon.icns"
 
-for required_path in "$info_plist" "$app_binary" "$recovery_helper" "$app_icon"; do
+for required_path in "$info_plist" "$app_binary" "$recovery_helper" "$app_icon" "$app_contents/Helpers/switchgpt"; do
   if [[ ! -e "$required_path" || -L "$required_path" ]]; then
     echo "required release path is missing or unsafe: $required_path" >&2
     exit 1

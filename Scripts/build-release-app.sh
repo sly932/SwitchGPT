@@ -36,6 +36,7 @@ fi
 
 swift build -c release --product SwitchGPTApp
 swift build -c release --product SwitchGPTRecoverySupervisor
+swift build -c release --product switchgpt
 build_bin_dir="$(swift build -c release --show-bin-path)"
 build_binary="$build_bin_dir/SwitchGPTApp"
 build_recovery_helper="$build_bin_dir/SwitchGPTRecoverySupervisor"
@@ -46,6 +47,7 @@ build_recovery_helper="$build_bin_dir/SwitchGPTRecoverySupervisor"
 /bin/mkdir -p "$helper_directory"
 /bin/cp "$build_binary" "$app_binary"
 /bin/cp "$build_recovery_helper" "$recovery_helper"
+/bin/cp "$build_bin_dir/switchgpt" "$helper_directory/switchgpt"
 /bin/cp "$repository_root/App/Info.plist" "$app_contents/Info.plist"
 /bin/cp "$repository_root/App/Assets/AppIcon.icns" "$app_icon"
 /bin/cp -R "$repository_root/App/Resources/en.lproj" "$app_resources/"
@@ -61,6 +63,7 @@ if [[ ! -x "$app_binary" ]]; then
   exit 1
 fi
 
+/usr/bin/codesign --force --sign "$signing_identity" --timestamp --options runtime "$helper_directory/switchgpt"
 /usr/bin/codesign --force --sign "$signing_identity" --timestamp --options runtime "$recovery_helper"
 signing_team="$(/usr/bin/codesign -dvv "$recovery_helper" 2>&1 | /usr/bin/awk -F= '/^TeamIdentifier=/{print $2; exit}')"
 if [[ -z "$signing_team" ]]; then

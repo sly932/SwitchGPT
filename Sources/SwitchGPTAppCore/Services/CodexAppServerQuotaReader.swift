@@ -4,6 +4,7 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
   public var codexBinaryURL: URL {
     configuredCodexBinaryURL ?? BundledCodexExecutable.resolve(in: desktopApplicationURL)
   }
+  public let includeTokenActivity: Bool
   public let timeout: Duration
   private let configuredCodexBinaryURL: URL?
   private let desktopApplicationURL: URL
@@ -11,10 +12,12 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
   public init(
     codexBinaryURL: URL? = nil,
     timeout: Duration = .seconds(20),
+    includeTokenActivity: Bool = true,
     desktopApplicationURL: URL = BundledCodexExecutable.defaultApplicationURL
   ) {
     self.configuredCodexBinaryURL = codexBinaryURL?.standardizedFileURL
     self.desktopApplicationURL = desktopApplicationURL.standardizedFileURL
+    self.includeTokenActivity = includeTokenActivity
     self.timeout = timeout
   }
 
@@ -41,7 +44,8 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
             let snapshot = try await Self.readSnapshot(
               from: path,
               binaryURL: codexBinaryURL,
-              timeout: timeout
+              timeout: timeout,
+              includeTokenActivity: includeTokenActivity
             )
             guard let account = accounts.first(where: { $0.id == accountID }),
               let expectedIdentityHash = account.identityHash
@@ -93,7 +97,8 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
     let snapshot = try await Self.readSnapshot(
       from: codexHomePath,
       binaryURL: codexBinaryURL,
-      timeout: timeout
+      timeout: timeout,
+      includeTokenActivity: includeTokenActivity
     )
     return ReadOnlyAccountProbe(
       identityHash: snapshot.identityHash,
@@ -103,7 +108,9 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
     )
   }
 
-  private static func readSnapshot(from path: String, binaryURL: URL, timeout: Duration)
+  private static func readSnapshot(
+    from path: String, binaryURL: URL, timeout: Duration, includeTokenActivity: Bool
+  )
     async throws -> ReadOnlyQuotaSnapshot
   {
     let stagedHome = try ReadOnlyCodexHomeStage(sourcePath: path)
@@ -113,7 +120,8 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
       let client = CodexAppServerClient(
         binaryURL: binaryURL,
         codexHome: stagedHome.url,
-        timeout: timeout
+        timeout: timeout,
+        includeTokenActivity: includeTokenActivity
       )
       return try client.readSnapshot()
     }.value
@@ -224,6 +232,7 @@ private struct CodexAppServerClient: Sendable {
   let binaryURL: URL
   let codexHome: URL
   let timeout: Duration
+  let includeTokenActivity: Bool
 
   func readSnapshot() throws -> ReadOnlyQuotaSnapshot {
     guard FileManager.default.isExecutableFile(atPath: binaryURL.path) else {
@@ -307,15 +316,20 @@ private struct CodexAppServerClient: Sendable {
     )
     // Token activity is optional on older app-server builds and can be unavailable
     // independently of rate limits. Keep the valid quota snapshot in that case.
-    let tokenActivity = try? CodexTokenActivityDecoder.decode(
-      from: request(
-        method: "account/usage/read",
-        params: NSNull(),
-        input: input,
-        output: output,
-        nextID: &nextID
+    let tokenActivity: AccountTokenActivity?
+    if includeTokenActivity {
+      tokenActivity = try? CodexTokenActivityDecoder.decode(
+        from: request(
+          method: "account/usage/read",
+          params: NSNull(),
+          input: input,
+          output: output,
+          nextID: &nextID
+        )
       )
-    )
+    } else {
+      tokenActivity = nil
+    }
     return ReadOnlyQuotaSnapshot(
       identityHash: accountMetadata.identityHash,
       email: accountMetadata.email,

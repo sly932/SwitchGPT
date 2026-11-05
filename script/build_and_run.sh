@@ -26,6 +26,7 @@ touch "$dev_bundle_directory/.metadata_never_index"
 
 swift build -c debug --product SwitchGPTApp
 swift build -c debug --product SwitchGPTRecoverySupervisor
+swift build -c debug --product switchgpt
 build_bin_dir="$(swift build -c debug --show-bin-path)"
 build_binary="$build_bin_dir/SwitchGPTApp"
 build_recovery_helper="$build_bin_dir/SwitchGPTRecoverySupervisor"
@@ -44,6 +45,7 @@ mkdir -p "$app_resources"
 mkdir -p "$helper_directory"
 cp "$build_binary" "$app_binary"
 cp "$build_recovery_helper" "$recovery_helper"
+cp "$build_bin_dir/switchgpt" "$helper_directory/switchgpt"
 cp "$repository_root/App/Info.plist" "$info_plist"
 cp "$repository_root/App/Assets/AppIcon.icns" "$app_icon"
 cp -R "$repository_root/App/Resources/en.lproj" "$app_resources/"
@@ -54,6 +56,7 @@ chmod 755 "$recovery_helper"
 
 signing_identity="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Apple Development:/{print $2; exit}')"
 if [[ -n "$signing_identity" ]]; then
+  codesign --force --sign "$signing_identity" --timestamp=none --options runtime "$helper_directory/switchgpt" >/dev/null
   codesign --force --sign "$signing_identity" --identifier "SwitchGPTRecoverySupervisor" --timestamp=none --options runtime "$recovery_helper" >/dev/null
   signing_team="$(codesign -dvv "$recovery_helper" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
   if [[ -z "$signing_team" ]]; then
@@ -66,6 +69,7 @@ if [[ -n "$signing_identity" ]]; then
   echo "Signed with Apple Development identity"
 else
   /usr/bin/plutil -replace SwitchGPTHostTeamIdentifier -string "SWITCHGPT-LOCAL-ADHOC" "$info_plist"
+  codesign --force --sign - --timestamp=none "$helper_directory/switchgpt" >/dev/null
   codesign --force --sign - --identifier "SwitchGPTRecoverySupervisor" --timestamp=none "$recovery_helper" >/dev/null
   codesign --force --sign - --identifier "$bundle_id" --timestamp=none "$app_binary" >/dev/null
   codesign --force --sign - --timestamp=none "$app_bundle" >/dev/null

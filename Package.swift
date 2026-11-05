@@ -8,6 +8,7 @@ let package = Package(
     .macOS(.v14)
   ],
   products: [
+    .executable(name: "switchgpt", targets: ["SwitchGPTCLI"]),
     .library(
       name: "SwitchGPTSafetyCore",
       targets: ["SwitchGPTSafetyCore"]
@@ -50,6 +51,7 @@ let package = Package(
     ),
   ],
   targets: [
+    .executableTarget(name: "SwitchGPTCLI", dependencies: ["SwitchGPTAppCore"]),
     .target(
       name: "SwitchGPTSafetyCore"
     ),
