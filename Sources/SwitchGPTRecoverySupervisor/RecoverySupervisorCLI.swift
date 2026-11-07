@@ -58,11 +58,18 @@ enum RecoverySupervisorCLI {
           authenticationFileURL: recoverySnapshotURL
         )
       ],
-      processController: MacOSChatGPTProcessController(),
+      processController: MacOSChatGPTProcessController(allowsTerminationFallback: false),
       identityReader: PinnedAuthenticationIdentityReader(
         authenticationFileURL: activeAuthenticationURL
       ),
-      authenticationInstaller: installer
+      authenticationInstaller: installer,
+      projectStateSynchronizer: LocalProjectStateSynchronizer(
+        globalStateURL: activeAuthenticationURL.deletingLastPathComponent()
+          .appendingPathComponent(".codex-global-state.json"),
+        sharedStateURL: transactionsRoot.deletingLastPathComponent()
+          .appendingPathComponent("LocalProjects/shared-state-v1.json"),
+        transactionDirectoryURL: transactionDirectory
+      )
     )
 
     try RecoveryReadinessMarker.create(

@@ -7,19 +7,22 @@ public final class MacOSChatGPTProcessController: DesktopProcessControlling {
   public let timeout: TimeInterval
   public let terminationGracePeriod: TimeInterval
   public let launchStabilityPeriod: TimeInterval
+  public let allowsTerminationFallback: Bool
 
   public init(
     bundleIdentifier: String = "com.openai.codex",
     applicationURL: URL = URL(fileURLWithPath: "/Applications/ChatGPT.app"),
     timeout: TimeInterval = 30,
     terminationGracePeriod: TimeInterval = 2,
-    launchStabilityPeriod: TimeInterval = 2
+    launchStabilityPeriod: TimeInterval = 2,
+    allowsTerminationFallback: Bool = true
   ) {
     self.bundleIdentifier = bundleIdentifier
     self.applicationURL = applicationURL.standardizedFileURL
     self.timeout = timeout
     self.terminationGracePeriod = min(max(terminationGracePeriod, 0), timeout)
     self.launchStabilityPeriod = min(max(launchStabilityPeriod, 0), timeout)
+    self.allowsTerminationFallback = allowsTerminationFallback
   }
 
   public func isRunning() throws -> Bool {
@@ -47,7 +50,7 @@ public final class MacOSChatGPTProcessController: DesktopProcessControlling {
       if remaining.isEmpty {
         return
       }
-      if !sentTerminationFallback, Date() >= fallbackDeadline {
+      if allowsTerminationFallback, !sentTerminationFallback, Date() >= fallbackDeadline {
         for processIdentifier in Self.originalProcessesStillRunning(
           original: originalProcessIdentifiers,
           current: Set(remaining.map(\.processIdentifier))

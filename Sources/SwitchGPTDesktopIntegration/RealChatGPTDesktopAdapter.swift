@@ -9,13 +9,15 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
   private let processController: DesktopProcessControlling
   private let identityReader: InstalledIdentityReading
   private let authenticationInstaller: AuthenticationStateInstalling
+  private let projectStateSynchronizer: LocalProjectStateSynchronizing?
 
   public init(
     sourceIdentity: IdentityID,
     profiles: [DesktopCredentialProfile],
     processController: DesktopProcessControlling,
     identityReader: InstalledIdentityReading,
-    authenticationInstaller: AuthenticationStateInstalling
+    authenticationInstaller: AuthenticationStateInstalling,
+    projectStateSynchronizer: LocalProjectStateSynchronizing? = nil
   ) throws {
     var profilesByIdentity: [IdentityID: DesktopCredentialProfile] = [:]
     for profile in profiles {
@@ -31,6 +33,7 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     self.processController = processController
     self.identityReader = identityReader
     self.authenticationInstaller = authenticationInstaller
+    self.projectStateSynchronizer = projectStateSynchronizer
   }
 
   public func isRunning() throws -> Bool {
@@ -46,8 +49,17 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
   }
 
   public func install(identity: IdentityID) throws {
+    if projectStateSynchronizer != nil, try processController.isRunning() {
+      throw DesktopIntegrationError.desktopDidNotTerminate
+    }
     if identity == sourceIdentity {
       if try authenticationInstaller.hasRecoverySnapshot() {
+        guard let source = profilesByIdentity[sourceIdentity] else {
+          throw DesktopIntegrationError.missingProfile
+        }
+        try projectStateSynchronizer?.recoverSource(
+          sourceAuthenticationURL: source.authenticationFileURL
+        )
         try authenticationInstaller.restoreRecoverySnapshot()
         return
       }
@@ -61,6 +73,13 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
       throw DesktopIntegrationError.missingProfile
     }
     try authenticationInstaller.snapshotActiveStateIfNeeded()
+    guard let source = profilesByIdentity[sourceIdentity] else {
+      throw DesktopIntegrationError.missingProfile
+    }
+    try projectStateSynchronizer?.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationFileURL,
+      targetAuthenticationURL: profile.authenticationFileURL
+    )
     try authenticationInstaller.installAuthenticationFile(
       from: profile.authenticationFileURL
     )

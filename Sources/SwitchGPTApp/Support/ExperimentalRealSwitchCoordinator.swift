@@ -200,9 +200,17 @@ enum ExperimentalRealSwitchCoordinator {
           authenticationFileURL: plan.targetAuthenticationURL
         ),
       ],
-      processController: MacOSChatGPTProcessController(),
+      processController: MacOSChatGPTProcessController(allowsTerminationFallback: false),
       identityReader: identityReader,
-      authenticationInstaller: installer
+      authenticationInstaller: installer,
+      projectStateSynchronizer: LocalProjectStateSynchronizer(
+        globalStateURL: activeAuthenticationURL.deletingLastPathComponent()
+          .appendingPathComponent(".codex-global-state.json"),
+        sharedStateURL: transactionDirectory.deletingLastPathComponent()
+          .deletingLastPathComponent()
+          .appendingPathComponent("LocalProjects/shared-state-v1.json"),
+        transactionDirectoryURL: transactionDirectory
+      )
     )
     let hostEvidence = try SystemSupervisorHostEvidenceCollector.collect(
       configuration: SupervisorHostConfiguration(
