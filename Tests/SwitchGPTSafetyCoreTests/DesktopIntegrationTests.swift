@@ -93,6 +93,66 @@ final class DesktopIntegrationTests: XCTestCase {
     XCTAssertEqual(try adapter.currentIdentity(), fixture.identityA)
   }
 
+  func testProjectStateIsSynchronizedWhileStoppedBeforeInstallingAuthentication() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    let identityReader = PinnedAuthenticationIdentityReader(
+      authenticationFileURL: fixture.activeAuthenticationURL
+    )
+    let projects = FixtureProjectStateSynchronizer(
+      prepare: {
+        XCTAssertFalse(process.running)
+        XCTAssertEqual(try identityReader.currentIdentity(), fixture.identityA)
+      },
+      recover: {
+        XCTAssertFalse(process.running)
+        XCTAssertEqual(try identityReader.currentIdentity(), fixture.identityB)
+      }
+    )
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: identityReader,
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: projects
+    )
+
+    XCTAssertThrowsError(try adapter.install(identity: fixture.identityB))
+    XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
+    try adapter.stop()
+    try adapter.install(identity: fixture.identityB)
+    XCTAssertEqual(projects.prepareCount, 1)
+    XCTAssertEqual(try identityReader.currentIdentity(), fixture.identityB)
+    try adapter.install(identity: fixture.identityA)
+    XCTAssertEqual(projects.recoveryCount, 1)
+    XCTAssertEqual(try identityReader.currentIdentity(), fixture.identityA)
+  }
+
+  func testProjectStateFailureDoesNotReplaceAuthentication() throws {
+    let fixture = try makeFixture()
+    let projects = FixtureProjectStateSynchronizer(
+      prepare: { throw DesktopIntegrationError.identityMismatch }
+    )
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: FixtureProcessController(running: false),
+      identityReader: PinnedAuthenticationIdentityReader(
+        authenticationFileURL: fixture.activeAuthenticationURL
+      ),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: projects
+    )
+    let before = try Data(contentsOf: fixture.activeAuthenticationURL)
+
+    XCTAssertThrowsError(try adapter.install(identity: fixture.identityB))
+
+    XCTAssertEqual(try Data(contentsOf: fixture.activeAuthenticationURL), before)
+    XCTAssertTrue(try fixture.installer.hasRecoverySnapshot())
+    XCTAssertEqual(projects.prepareCount, 1)
+  }
+
   func testMissingSnapshotFailsClosedWhenActiveIdentityIsNotSource() throws {
     let fixture = try makeFixture(activeIdentity: .b)
     let adapter = try RealChatGPTDesktopAdapter(
@@ -314,6 +374,28 @@ final class DesktopIntegrationTests: XCTestCase {
 }
 
 private enum FixtureIdentity { case a, b }
+
+private final class FixtureProjectStateSynchronizer: LocalProjectStateSynchronizing {
+  var prepareCount = 0
+  var recoveryCount = 0
+  let prepare: () throws -> Void
+  let recover: () throws -> Void
+
+  init(prepare: @escaping () throws -> Void = {}, recover: @escaping () throws -> Void = {}) {
+    self.prepare = prepare
+    self.recover = recover
+  }
+
+  func prepareSwitch(sourceAuthenticationURL: URL, targetAuthenticationURL: URL) throws {
+    prepareCount += 1
+    try prepare()
+  }
+
+  func recoverSource(sourceAuthenticationURL: URL) throws {
+    recoveryCount += 1
+    try recover()
+  }
+}
 
 private final class FixtureProcessController: DesktopProcessControlling {
   var running: Bool

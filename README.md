@@ -145,6 +145,10 @@ SwitchGPT 每 24 小时最多检查一次官方 GitHub 仓库的最新正式 Rel
 
 取消确认不会开始切换。不要在重要任务运行期间尝试，也不要连续重复点击。ChatGPT Desktop 版本变化时，SwitchGPT 可能把当前版本标为未验证并在确认流程中提示风险。
 
+本机项目会随账号切换同步。SwitchGPT 在 ChatGPT 正常退出后读取最新状态，保留两个账号新增的本地项目，并根据上次同步的基线识别重命名、目录调整、聊天归属、置顶和删除。同一个字段在两边都被修改时，以本次退出账号的改动为准。旧快照中的已删除项目会保持删除，之后主动重新加入的项目也能继续同步。
+
+同步基线保存在 `~/Library/Application Support/SwitchGPT-sly/LocalProjects/shared-state-v1.json`，每次切换前的项目快照保存在同目录的 `Backups/` 中。账号身份、未发送草稿和云端项目保留各自账号的状态。项目状态读取或写入失败时，切换进入现有的恢复流程。
+
 ## 卸载和清理本地账号
 
 只卸载应用：退出 SwitchGPT，然后把 `/Applications/SwitchGPT.app` 移到废纸篓即可。卸载不会删除你的 ChatGPT 云端账号或对话。
