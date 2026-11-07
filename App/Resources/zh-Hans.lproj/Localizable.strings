@@ -220,3 +220,27 @@
 "部分指标或每日记录未返回，仅汇总已有数据。" = "部分指标或每日记录未返回，仅汇总已有数据。";
 "各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。" = "各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。";
 "随其他位置的用量刷新更新。" = "随其他位置的用量刷新更新。";
+
+"Usage Plan" = "使用计划";
+"Customize Display" = "自定义显示";
+"Subscription expiry (manual)" = "套餐到期（手动登记）";
+"Expiry · Not recorded" = "到期 · 未登记";
+"Expiry %@ · Manual" = "到期 %@ · 手动登记";
+"Subscription dates" = "套餐到期登记";
+"Record the subscription expiry date manually. Quota refresh does not provide this date." = "手动登记套餐到期日期。额度查询接口未提供该日期。";
+"Unable to read or save subscription dates" = "无法读取或保存套餐日期";
+"Dates are shared with the usage plan. Update the plan after editing dates." = "日期与使用计划共用一份数据。修改后请更新使用计划。";
+"Expiry date for %@" = "%@ 的套餐到期日期";
+"Not recorded" = "未登记";
+"Manually recorded" = "手动登记";
+"Enter a valid date in YYYY-MM-DD format." = "请输入有效日期，格式为 YYYY-MM-DD。";
+"Reload plan" = "重新载入计划";
+"Open HTML" = "打开 HTML";
+"No saved usage plan" = "尚无已保存的使用计划";
+"Run the switchgpt-usage-plan skill to create or update your local plan." = "运行 switchgpt-usage-plan 技能，创建或更新本地计划。";
+"Plan needs updating. Account data or subscription dates changed after this plan was generated." = "计划待更新。生成此计划后，账号数据或套餐日期已有变化。";
+"The local plan is missing or unreadable. Run the switchgpt-usage-plan skill and reload." = "本地计划缺失或无法读取。请运行 switchgpt-usage-plan 技能后重新载入。";
+"Save" = "保存";
+"Clear" = "清除";
+
+"Unable to display the local plan. Open HTML in your browser." = "无法显示本地计划。请在浏览器中打开 HTML。";

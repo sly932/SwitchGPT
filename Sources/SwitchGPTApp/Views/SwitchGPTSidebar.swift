@@ -7,13 +7,14 @@ struct SwitchGPTSidebar: View {
   let listPreferences: AccountListPreferences
   let resetTimePreferences: ResetTimePreferences
   @Binding var selection: AccountID?
-  @Binding var showsAccountOverview: Bool
+  @Binding var section: DashboardSection
   let topInset: CGFloat
   let onAddOrCancel: () -> Void
 
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.openURL) private var openURL
-  @Environment(\.openWindow) private var openWindow
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var subscriptions = SubscriptionDisplayStore.shared
 
   var body: some View {
     VStack(spacing: 0) {
@@ -42,10 +43,24 @@ struct SwitchGPTSidebar: View {
         SidebarActionRow(
           title: "账号总览",
           symbol: "chart.bar.xaxis",
-          action: { showsAccountOverview = true },
-          isSelected: showsAccountOverview
+          action: { section = .overview },
+          isSelected: section == .overview
         )
         .padding(.top, 12)
+
+        SidebarActionRow(
+          title: "Usage Plan",
+          symbol: "calendar.badge.clock",
+          action: { section = .usagePlan },
+          isSelected: section == .usagePlan
+        )
+
+        SidebarActionRow(
+          title: "Customize Display",
+          symbol: "slider.horizontal.3",
+          action: { section = .displaySettings },
+          isSelected: section == .displaySettings
+        )
 
         HStack {
           Text("Accounts")
@@ -56,7 +71,7 @@ struct SwitchGPTSidebar: View {
             .font(.system(size: 12).monospacedDigit())
             .foregroundStyle(.tertiary)
           Button {
-            openWindow(id: "display-settings")
+            section = .displaySettings
           } label: {
             Image(systemName: "slider.horizontal.3")
               .font(.system(size: 11))
@@ -77,15 +92,16 @@ struct SwitchGPTSidebar: View {
           ForEach(listPreferences.sidebar.orderedAccounts(store.accounts)) { account in
             Button {
               selection = account.id
-              showsAccountOverview = false
+              section = .account
             } label: {
               AccountSidebarRow(
                 account: account,
                 isCurrent: store.currentAccountID.map { $0 == account.id } ?? false,
-                isSelected: !showsAccountOverview && selection == account.id,
+                isSelected: section == .account && selection == account.id,
                 refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
                 settings: listPreferences.sidebar,
-                resetTimeFormat: resetTimePreferences.format
+                resetTimeFormat: resetTimePreferences.format,
+                subscriptionExpiry: subscriptions.expiry(for: account.email)
               )
             }
             .buttonStyle(.plain)
@@ -125,6 +141,10 @@ struct SwitchGPTSidebar: View {
         .padding(.top, 8)
       }
       .padding(.bottom, 10)
+    }
+    .task { subscriptions.reload() }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { subscriptions.reload() }
     }
     .padding(.top, topInset)
     .background(ChatGPTStyle.sidebarBackground(for: colorScheme))
@@ -281,6 +301,7 @@ private struct AccountSidebarRow: View {
   let refreshFailed: Bool
   let settings: AccountListSettings
   let resetTimeFormat: ResetTimeFormat
+  let subscriptionExpiry: String?
 
   @State private var isHovered = false
 
@@ -289,9 +310,14 @@ private struct AccountSidebarRow: View {
       for: account,
       resetTimeFormat: resetTimeFormat,
       refreshFailed: refreshFailed,
-      excludingWeeklyReset: true
+      excludingWeeklyReset: true,
+      excludingSubscriptionExpiry: true,
+      subscriptionExpiry: subscriptionExpiry
     )
     let resetText = settings.weeklyResetText(for: account, resetTimeFormat: resetTimeFormat)
+    let expiryText = settings.subscriptionExpiryText(
+      for: account, resetTimeFormat: resetTimeFormat, subscriptionExpiry: subscriptionExpiry
+    )
 
     VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 10) {
@@ -350,6 +376,17 @@ private struct AccountSidebarRow: View {
           .lineLimit(1)
           .minimumScaleFactor(0.85)
           .help(resetText)
+          .padding(.horizontal, 10)
+          .frame(height: 20)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      if let expiryText {
+        Text(expiryText)
+          .font(.system(size: 11).monospacedDigit())
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.85)
+          .help(expiryText)
           .padding(.horizontal, 10)
           .frame(height: 20)
           .frame(maxWidth: .infinity, alignment: .leading)

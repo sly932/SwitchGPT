@@ -5,12 +5,29 @@ struct AccountListSettingsView: View {
   let preferences: AccountListPreferences
   let resetTimePreferences: ResetTimePreferences
   let store: SwitchGPTAppStore
+  let updatesWindowTitle: Bool
 
-  @State private var surface: AccountListSurface = .menu
+  @State private var surface: AccountListSurface
+  @State private var subscriptions = SubscriptionDisplayStore.shared
+  @Environment(\.scenePhase) private var scenePhase
   @State private var targetedField: AccountDisplayField?
   @State private var targetedAccount: AccountID?
   @State private var resetPreviewSurface: ResetPreviewSurface = .menu
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
+
+  init(
+    preferences: AccountListPreferences,
+    resetTimePreferences: ResetTimePreferences,
+    store: SwitchGPTAppStore,
+    initialSurface: AccountListSurface = .menu,
+    updatesWindowTitle: Bool = true
+  ) {
+    self.preferences = preferences
+    self.resetTimePreferences = resetTimePreferences
+    self.store = store
+    self.updatesWindowTitle = updatesWindowTitle
+    _surface = State(initialValue: initialSurface)
+  }
 
   private var settings: AccountListSettings { preferences.settings(for: surface) }
 
@@ -46,6 +63,29 @@ struct AccountListSettingsView: View {
           ForEach(settings.fieldOrder) { field in
             fieldRow(field)
           }
+        }
+
+        settingsSection(
+          title: "Subscription dates",
+          subtitle: "Record the subscription expiry date manually. Quota refresh does not provide this date."
+        ) {
+          if let message = subscriptions.errorMessage {
+            Text(L10n.string("Unable to read or save subscription dates") + " · " + message)
+              .font(.system(size: 11))
+              .foregroundStyle(ChatGPTStyle.dangerRed)
+          }
+          ForEach(store.accounts) { account in
+            if let email = account.email {
+              SubscriptionExpiryEditor(
+                email: email,
+                savedExpiry: subscriptions.expiry(for: email),
+                onSave: { subscriptions.saveExpiry($0, for: email) }
+              )
+            }
+          }
+          Text("Dates are shared with the usage plan. Update the plan after editing dates.")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
         }
 
         settingsSection(title: "Account order", subtitle: "Drag an account to its preferred position.") {
@@ -118,11 +158,18 @@ struct AccountListSettingsView: View {
                 for: account,
                 resetTimeFormat: resetTimePreferences.format,
                 refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
-                excludingWeeklyReset: true
+                excludingWeeklyReset: true,
+                excludingSubscriptionExpiry: true,
+                subscriptionExpiry: subscriptions.expiry(for: account.email)
               )
               let resetText = settings.weeklyResetText(
                 for: account,
                 resetTimeFormat: resetTimePreferences.format
+              )
+              let expiryText = settings.subscriptionExpiryText(
+                for: account,
+                resetTimeFormat: resetTimePreferences.format,
+                subscriptionExpiry: subscriptions.expiry(for: account.email)
               )
               VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
@@ -157,6 +204,12 @@ struct AccountListSettingsView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 }
+                if let expiryText {
+                  Text(expiryText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
               }
               .padding(.vertical, 4)
             }
@@ -177,8 +230,14 @@ struct AccountListSettingsView: View {
       .frame(maxWidth: 560)
       .frame(maxWidth: .infinity)
     }
+    .task { subscriptions.reload() }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { subscriptions.reload() }
+    }
     .frame(minWidth: 510, minHeight: 500)
-    .background(WindowTitleUpdater(title: L10n.string("Settings")))
+    .background {
+      if updatesWindowTitle { WindowTitleUpdater(title: L10n.string("Settings")) }
+    }
   }
 
   private var resetTimePreview: some View {
@@ -354,5 +413,65 @@ struct AccountListSettingsView: View {
       on: surface
     )
     return .handled
+  }
+}
+
+
+private struct SubscriptionExpiryEditor: View {
+  let email: String
+  let savedExpiry: String?
+  let onSave: (String?) -> Bool
+
+  @State private var draft = ""
+  @State private var invalidDate = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(email)
+        .font(.system(size: 12, weight: .medium))
+        .lineLimit(1)
+        .truncationMode(.middle)
+      HStack(spacing: 8) {
+        TextField("YYYY-MM-DD", text: $draft)
+          .textFieldStyle(.roundedBorder)
+          .font(.system(size: 12).monospacedDigit())
+          .frame(width: 130)
+          .accessibilityLabel(L10n.format("Expiry date for %@", email))
+          .onSubmit(save)
+        Button("Save", action: save)
+          .disabled(draft == (savedExpiry ?? ""))
+        if savedExpiry != nil {
+          Button("Clear") {
+            if onSave(nil) { draft = "" }
+          }
+        }
+        Spacer(minLength: 0)
+        Text(L10n.string(savedExpiry == nil ? "Not recorded" : "Manually recorded"))
+          .font(.system(size: 10))
+          .foregroundStyle(.secondary)
+      }
+      if invalidDate {
+        Text("Enter a valid date in YYYY-MM-DD format.")
+          .font(.system(size: 11))
+          .foregroundStyle(ChatGPTStyle.dangerRed)
+      }
+    }
+    .padding(10)
+    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    .onAppear { draft = savedExpiry ?? "" }
+    .onChange(of: savedExpiry) { _, newValue in
+      draft = newValue ?? ""
+      invalidDate = false
+    }
+  }
+
+  private func save() {
+    let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard value.isEmpty || AccountSubscription.isValidDate(value) else {
+      invalidDate = true
+      return
+    }
+    invalidDate = false
+    if onSave(value.isEmpty ? nil : value) { draft = value }
   }
 }
