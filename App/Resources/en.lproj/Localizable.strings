@@ -42,3 +42,27 @@
 "部分指标或每日记录未返回，仅汇总已有数据。" = "Some metrics or daily records are missing. Only returned data is summed.";
 "各指标为账号对应数值之和，峰值、单轮时长和连续天数均直接相加。" = "Each metric sums the corresponding account values, including peaks, turn durations, and streak days.";
 "随其他位置的用量刷新更新。" = "Updates when usage is refreshed elsewhere.";
+
+"Usage Plan" = "Usage Plan";
+"Customize Display" = "Customize Display";
+"Subscription expiry (manual)" = "Subscription expiry (manual)";
+"Expiry · Not recorded" = "Expiry · Not recorded";
+"Expiry %@ · Manual" = "Expiry %@ · Manual";
+"Subscription dates" = "Subscription dates";
+"Record the subscription expiry date manually. Quota refresh does not provide this date." = "Record the subscription expiry date manually. Quota refresh does not provide this date.";
+"Unable to read or save subscription dates" = "Unable to read or save subscription dates";
+"Dates are shared with the usage plan. Update the plan after editing dates." = "Dates are shared with the usage plan. Update the plan after editing dates.";
+"Expiry date for %@" = "Expiry date for %@";
+"Not recorded" = "Not recorded";
+"Manually recorded" = "Manually recorded";
+"Enter a valid date in YYYY-MM-DD format." = "Enter a valid date in YYYY-MM-DD format.";
+"Reload plan" = "Reload plan";
+"Open HTML" = "Open HTML";
+"No saved usage plan" = "No saved usage plan";
+"Run the switchgpt-usage-plan skill to create or update your local plan." = "Run the switchgpt-usage-plan skill to create or update your local plan.";
+"Plan needs updating. Account data or subscription dates changed after this plan was generated." = "Plan needs updating. Account data or subscription dates changed after this plan was generated.";
+"The local plan is missing or unreadable. Run the switchgpt-usage-plan skill and reload." = "The local plan is missing or unreadable. Run the switchgpt-usage-plan skill and reload.";
+"Save" = "Save";
+"Clear" = "Clear";
+
+"Unable to display the local plan. Open HTML in your browser." = "Unable to display the local plan. Open HTML in your browser.";

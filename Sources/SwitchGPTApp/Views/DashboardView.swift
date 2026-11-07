@@ -1,6 +1,13 @@
 import SwiftUI
 import SwitchGPTAppCore
 
+enum DashboardSection {
+  case account
+  case overview
+  case usagePlan
+  case displaySettings
+}
+
 struct DashboardView: View {
   let store: SwitchGPTAppStore
   let updateStore: AppUpdateStore
@@ -11,7 +18,7 @@ struct DashboardView: View {
   @State private var pendingRealSwitch: RealSwitchPlan?
   @State private var pendingRemoval: AccountRecord?
   @State private var selectedAccountID: AccountID?
-  @State private var showsAccountOverview = false
+  @State private var section: DashboardSection = .account
   @State private var accountSignInTask: Task<Void, Never>?
   @State private var windowTopInset: CGFloat = 0
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
@@ -60,7 +67,7 @@ struct DashboardView: View {
         listPreferences: listPreferences,
         resetTimePreferences: resetTimePreferences,
         selection: $selectedAccountID,
-        showsAccountOverview: $showsAccountOverview,
+        section: $section,
         topInset: windowTopInset,
         onAddOrCancel: { addOrCancelAccountSignIn() }
       )
@@ -69,7 +76,25 @@ struct DashboardView: View {
 
       Divider()
 
-      dashboardDetail
+      Group {
+        switch section {
+        case .account, .overview:
+          dashboardDetail
+        case .usagePlan:
+          UsagePlanView()
+            .padding(.top, windowTopInset)
+        case .displaySettings:
+          AccountListSettingsView(
+            preferences: listPreferences,
+            resetTimePreferences: resetTimePreferences,
+            store: store,
+            initialSurface: .sidebar,
+            updatesWindowTitle: false
+          )
+          .padding(.top, windowTopInset)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .tint(.primary)
     .frame(minWidth: 820, minHeight: 540)
@@ -100,7 +125,7 @@ struct DashboardView: View {
       await updateStore.checkIfStale()
     }
     .onChange(of: store.currentAccountID) { _, newValue in
-      if !showsAccountOverview { selectedAccountID = newValue }
+      if section == .account { selectedAccountID = newValue }
     }
     .onDisappear {
       accountSignInTask?.cancel()
@@ -156,7 +181,7 @@ struct DashboardView: View {
     DashboardDetailView(
       store: store,
       account: selectedAccount,
-      showsAccountOverview: showsAccountOverview,
+      showsAccountOverview: section == .overview,
       isCurrent: selectedAccountIsCurrent,
       allowsCurrentAction: selectedAccountAllowsCurrentAction,
       resetTimeFormat: resetTimePreferences.format,
@@ -231,7 +256,7 @@ struct DashboardView: View {
     accountSignInTask = Task {
       if let newID = await store.signInAccount(replacing: accountID) {
         selectedAccountID = newID
-        showsAccountOverview = false
+        section = .account
       }
       accountSignInTask = nil
     }

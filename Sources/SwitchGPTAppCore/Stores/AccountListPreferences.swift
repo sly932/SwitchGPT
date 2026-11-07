@@ -18,6 +18,7 @@ public enum AccountDisplayField: String, Codable, CaseIterable, Identifiable, Se
   case fiveHourRemaining
   case credits
   case weeklyReset
+  case subscriptionExpiry
 
   public var id: String { rawValue }
 }

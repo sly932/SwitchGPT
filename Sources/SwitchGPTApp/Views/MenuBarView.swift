@@ -54,6 +54,8 @@ struct MenuBarView: View {
   let resetTimePreferences: ResetTimePreferences
 
   @Environment(\.openWindow) private var openWindow
+  @State private var subscriptions = SubscriptionDisplayStore.shared
+  @Environment(\.scenePhase) private var scenePhase
   @State private var hoveredAccountID: AccountID?
   @State private var hoveredActionTitle: String?
 
@@ -114,7 +116,11 @@ struct MenuBarView: View {
     }
     .padding(10)
     .frame(width: 390)
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { subscriptions.reload() }
+    }
     .task {
+      subscriptions.reload()
       await store.refreshIfStale(
         maxAge: UsageRefreshPolicy.menuOpenMaxAge,
         reportsActivity: false
@@ -161,11 +167,18 @@ struct MenuBarView: View {
       for: account,
       resetTimeFormat: resetTimePreferences.format,
       refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
-      excludingWeeklyReset: true
+      excludingWeeklyReset: true,
+      excludingSubscriptionExpiry: true,
+      subscriptionExpiry: subscriptions.expiry(for: account.email)
     )
     let resetText = listPreferences.menu.weeklyResetText(
       for: account,
       resetTimeFormat: resetTimePreferences.format
+    )
+    let expiryText = listPreferences.menu.subscriptionExpiryText(
+      for: account,
+      resetTimeFormat: resetTimePreferences.format,
+      subscriptionExpiry: subscriptions.expiry(for: account.email)
     )
     return Button {
       Task {
@@ -214,6 +227,13 @@ struct MenuBarView: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .help(resetText)
+        }
+        if let expiryText {
+          Text(expiryText)
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .help(expiryText)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
