@@ -23,10 +23,12 @@ final class SwitchGPTAppDelegate: NSObject, NSApplicationDelegate {
     guard instanceLockFD >= 0 else { return }
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
-    logger.info("SwitchGPT UI launched in read-only quota mode")
+    ExperimentalRealSwitchCoordinator.projectStateMonitor.start()
+    logger.info("SwitchGPT UI launched with local project-state monitoring")
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    ExperimentalRealSwitchCoordinator.projectStateMonitor.stop()
     if instanceLockFD >= 0 {
       close(instanceLockFD)
       instanceLockFD = -1

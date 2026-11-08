@@ -244,3 +244,4 @@
 "Clear" = "清除";
 
 "Unable to display the local plan. Open HTML in your browser." = "无法显示本地计划。请在浏览器中打开 HTML。";
+"Local project synchronization or verification failed. The account switch was blocked." = "本地项目同步或一致性核验失败，已阻止切换账号。";

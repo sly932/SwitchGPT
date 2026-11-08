@@ -1,5 +1,6 @@
 import Foundation
 import SwitchGPTAppCore
+import SwitchGPTDesktopIntegration
 
 enum RealSwitchWorkflowError: Error, LocalizedError {
   case targetUnavailable
@@ -37,9 +38,12 @@ enum RealSwitchWorkflow {
 
   static func run(_ plan: RealSwitchPlan, store: SwitchGPTAppStore) async {
     guard store.beginRealSwitch(to: plan.targetAccount.id) else { return }
+    ExperimentalRealSwitchCoordinator.projectStateMonitor.pauseAndWait()
+    defer { ExperimentalRealSwitchCoordinator.projectStateMonitor.resume() }
+    let accounts = store.accounts
     do {
       let result = try await Task.detached(priority: .userInitiated) {
-        try ExperimentalRealSwitchCoordinator.perform(plan)
+        try ExperimentalRealSwitchCoordinator.perform(plan, accounts: accounts)
       }.value
       switch result.outcome {
       case .committed:
@@ -71,6 +75,9 @@ enum RealSwitchWorkflow {
   }
 
   static func userMessage(for error: Error) -> String {
+    if error is LocalProjectStateSynchronizationError {
+      return L10n.string("Local project synchronization or verification failed. The account switch was blocked.")
+    }
     if let error = error as? ExperimentalRealSwitchError,
       let message = error.errorDescription
     {

@@ -7,6 +7,13 @@ public protocol LocalProjectStateSynchronizing: AnyObject {
   func recoverSource(sourceAuthenticationURL: URL) throws
 }
 
+public protocol LocalProjectAuthorityManaging: LocalProjectStateSynchronizing {
+  func initializeActive(authenticationURL: URL) throws
+  func captureActive(authenticationURL: URL) throws
+  func synchronizeAndVerifyAll(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws
+  func verifyAfterExit(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws
+}
+
 public enum LocalProjectStateSynchronizationError: Error, Equatable {
   case invalidState
   case unsafeStorage
@@ -14,11 +21,13 @@ public enum LocalProjectStateSynchronizationError: Error, Equatable {
   case identityMismatch
   case unsupportedSchema
   case transactionConflict
+  case stateMismatch
+  case missingVerification
 }
 
-/// Shares local project metadata while keeping ChatGPT's account-owned state separate.
-/// Call only after the desktop has exited and while the switch transaction is locked.
-public final class LocalProjectStateSynchronizer: LocalProjectStateSynchronizing {
+/// Records changes from the verified active account and distributes that exact local subset.
+/// Background capture changes only the private master. Switch verification never repairs state.
+public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging {
   private let globalStateURL: URL
   private let sharedStateURL: URL
   private let transactionDirectoryURL: URL
@@ -48,113 +57,284 @@ public final class LocalProjectStateSynchronizer: LocalProjectStateSynchronizing
     self.transactionDirectoryURL = transactionDirectoryURL.standardizedFileURL
   }
 
-  public func prepareSwitch(sourceAuthenticationURL: URL, targetAuthenticationURL: URL) throws {
-    guard let bytes = try ProjectStateFile.readIfPresent(globalStateURL, requirePrivate: false) else { return }
-    var document = try object(bytes)
-    guard document[registryKey] != nil else { return }
-    try validateRegistry(document)
-    let sourceOwner = try rendererOwner(authenticationURL: sourceAuthenticationURL)
-    let targetOwner = try rendererOwner(authenticationURL: targetAuthenticationURL)
-    guard sourceOwner != targetOwner else {
-      throw LocalProjectStateSynchronizationError.identityMismatch
-    }
-    try requireSourceOwner(sourceOwner, document: document)
-    try ProjectStateFile.prepareDirectory(sharedStateURL.deletingLastPathComponent())
-    let lock = try ProjectStateLock(url: sharedStateURL.appendingPathExtension("lock"))
+  public func initializeActive(authenticationURL: URL) throws {
+    try captureActive(authenticationURL: authenticationURL)
+  }
+
+  public func captureActive(authenticationURL: URL) throws {
+    let owner = try rendererOwner(authenticationURL: authenticationURL)
+    let lock = try acquireLock()
     defer { lock.release() }
+    guard let (bytes, document) = try readDocument() else { return }
+    try requireActiveOwner(owner, document: document)
+    let before = try readMaster()
+    let current = try snapshot(owner: owner, document: document)
+    let master = try accepting(current, owner: owner, previous: before)
+    guard master != before else { return }
+    try backup(document: document, previous: before, operation: "capture")
+    try requireUnchanged(bytes)
+    try saveMaster(master)
+  }
 
-    if let journal: ProjectSyncJournal = try readRecord(journalURL) {
-      guard journal.sourceOwner == sourceOwner, journal.targetOwner == targetOwner else {
-        throw LocalProjectStateSynchronizationError.transactionConflict
-      }
+  public func synchronizeAndVerifyAll(
+    activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]
+  ) throws {
+    let owner = try rendererOwner(authenticationURL: activeAuthenticationURL)
+    let owners = try managedOwners(managedAuthenticationURLs, including: owner)
+    let lock = try acquireLock()
+    defer { lock.release() }
+    guard let (bytes, original) = try readDocument() else { return }
+    try requireActiveOwner(owner, document: original)
+    // Validate every existing managed partition before creating any missing partition.
+    for managed in owners { _ = try snapshot(owner: managed, document: original) }
+    let before = try readMaster()
+    let current = try snapshot(owner: owner, document: original)
+    let master = try accepting(current, owner: owner, previous: before)
+    var document = original
+    for managed in owners { try apply(master.canonical, owner: managed, document: &document) }
+    try requireEqualSubsets(document: document, owners: owners, canonical: master.canonical)
+    try backup(document: original, previous: before, operation: "synchronize")
+    try commit(document: document, originalBytes: bytes, master: master)
+    guard let (_, written) = try readDocument() else {
+      throw LocalProjectStateSynchronizationError.stateMismatch
     }
-    var shared: SharedProjectState = try readRecord(sharedStateURL) ?? SharedProjectState()
-    let source = try snapshot(owner: sourceOwner, document: document)
-    let target = try snapshot(owner: targetOwner, document: document)
-    let firstSynchronization = shared.revision == 0
-    ingest(target, owner: targetOwner, into: &shared, bootstrapSource: false)
-    ingest(source, owner: sourceOwner, into: &shared, bootstrapSource: firstSynchronization)
-    sanitize(&shared)
-    shared.revision += 1
-    try apply(shared.canonical, owner: sourceOwner, document: &document)
-    try apply(shared.canonical, owner: targetOwner, document: &document)
-    shared.baselines[sourceOwner] = try snapshot(owner: sourceOwner, document: document)
-    shared.baselines[targetOwner] = try snapshot(owner: targetOwner, document: document)
-
-    let journal = ProjectSyncJournal(
-      sourceOwner: sourceOwner, targetOwner: targetOwner,
-      sourceBefore: source, targetBefore: target, prepared: shared
+    try requireActiveOwner(owner, document: written)
+    try requireEqualSubsets(document: written, owners: owners, canonical: master.canonical)
+    let proof = ProjectVerificationProof(
+      activeOwner: owner, managedOwners: owners, revision: master.revision,
+      snapshotDigest: try digest(master.canonical)
     )
     try ProjectStateFile.prepareDirectory(transactionDirectoryURL)
-    if try ProjectStateFile.readIfPresent(backupURL) == nil {
-      try writeRecord(journal, to: backupURL)
+    try writeRecord(proof, to: proofURL)
+  }
+
+  public func verifyAfterExit(
+    activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]
+  ) throws {
+    let owner = try rendererOwner(authenticationURL: activeAuthenticationURL)
+    let owners = try managedOwners(managedAuthenticationURLs, including: owner)
+    let lock = try acquireLock()
+    defer { lock.release() }
+    guard let (_, document) = try readDocument() else { return }
+    try verify(document: document, owner: owner, expectedOwners: owners)
+  }
+
+  public func prepareSwitch(sourceAuthenticationURL: URL, targetAuthenticationURL: URL) throws {
+    let source = try rendererOwner(authenticationURL: sourceAuthenticationURL)
+    let target = try rendererOwner(authenticationURL: targetAuthenticationURL)
+    let lock = try acquireLock()
+    defer { lock.release() }
+    guard let (_, document) = try readDocument() else { return }
+    guard source != target else { throw LocalProjectStateSynchronizationError.identityMismatch }
+    let proof = try verify(document: document, owner: source, expectedOwners: nil)
+    guard proof.managedOwners.contains(target), var master = try readMaster() else {
+      throw LocalProjectStateSynchronizationError.identityMismatch
     }
-    let historyDirectory = sharedStateURL.deletingLastPathComponent()
-      .appendingPathComponent("Backups", isDirectory: true)
-    try ProjectStateFile.prepareDirectory(historyDirectory)
-    let historyURL = historyDirectory.appendingPathComponent(transactionDirectoryURL.lastPathComponent + ".json")
-    if try ProjectStateFile.readIfPresent(historyURL) == nil {
-      try writeRecord(journal, to: historyURL)
-    }
-    // This durable intent lets a fresh recovery process finish even if either write is interrupted.
+    master.approvedNextOwner = target
+    master.approvalRevision = proof.revision
+    master.approvalSnapshotDigest = proof.snapshotDigest
+    let journal = ProjectAuthorityJournal(
+      sourceOwner: source, targetOwner: target, managedOwners: proof.managedOwners,
+      prepared: master
+    )
+    try ProjectStateFile.prepareDirectory(transactionDirectoryURL)
     try writeRecord(journal, to: journalURL)
-    try commit(document: document, originalBytes: bytes, shared: shared)
+    try saveMaster(master)
   }
 
   public func recoverSource(sourceAuthenticationURL: URL) throws {
-    guard var journal: ProjectSyncJournal = try readRecord(journalURL) else { return }
-    let sourceOwner = try rendererOwner(authenticationURL: sourceAuthenticationURL)
-    guard sourceOwner == journal.sourceOwner else {
+    let lock = try acquireLock()
+    defer { lock.release() }
+    var journal: ProjectAuthorityJournal? = try readRecord(journalURL)
+    let proof: ProjectVerificationProof? = journal == nil ? try readRecord(proofURL) : nil
+    guard journal != nil || proof != nil else { return }
+    let source = try rendererOwner(authenticationURL: sourceAuthenticationURL)
+    let expectedSource = journal?.sourceOwner ?? proof!.activeOwner
+    let owners = journal?.managedOwners ?? proof!.managedOwners
+    guard source == expectedSource else {
       throw LocalProjectStateSynchronizationError.identityMismatch
     }
-    guard let bytes = try ProjectStateFile.readIfPresent(globalStateURL, requirePrivate: false) else {
+    guard let (bytes, original) = try readDocument() else {
       throw LocalProjectStateSynchronizationError.invalidState
     }
-    var document = try object(bytes)
-    try validateRegistry(document)
-    let lock = try ProjectStateLock(url: sharedStateURL.appendingPathExtension("lock"))
-    defer { lock.release() }
-    let saved: SharedProjectState? = try readRecord(sharedStateURL)
-    var shared = saved.flatMap { $0.revision >= journal.prepared.revision ? $0 : nil }
-      ?? journal.prepared
-    let target = try snapshot(owner: journal.targetOwner, document: document)
-    let source = try snapshot(owner: sourceOwner, document: document)
-    // An interrupted prepare may not have written either owner yet. That is not a user deletion.
-    if target == journal.targetBefore { shared.baselines[journal.targetOwner] = target }
-    if source == journal.sourceBefore { shared.baselines[sourceOwner] = source }
-    ingest(target, owner: journal.targetOwner, into: &shared, bootstrapSource: false)
-    ingest(source, owner: sourceOwner, into: &shared, bootstrapSource: false)
-    sanitize(&shared)
-    shared.revision += 1
-    try apply(shared.canonical, owner: sourceOwner, document: &document)
-    try apply(shared.canonical, owner: journal.targetOwner, document: &document)
-    shared.baselines[sourceOwner] = try snapshot(owner: sourceOwner, document: document)
-    shared.baselines[journal.targetOwner] = try snapshot(owner: journal.targetOwner, document: document)
-    journal.sourceBefore = source
-    journal.targetBefore = target
-    journal.prepared = shared
-    try writeRecord(journal, to: journalURL)
-    try commit(document: document, originalBytes: bytes, shared: shared)
+    guard let before = try readMaster() ?? journal?.prepared else {
+      throw LocalProjectStateSynchronizationError.missingVerification
+    }
+    var master = before
+    if let approved = journal {
+      if let active = original[registryKey]?.object?["owner"]?.string {
+        guard active == source || active == approved.targetOwner else {
+          throw LocalProjectStateSynchronizationError.identityMismatch
+        }
+        master = try accepting(snapshot(owner: active, document: original), owner: active, previous: master)
+      }
+    } else {
+      // A failed exit check never authorized the target. Restore the trusted pre-quit master,
+      // retaining the unexpected exit snapshot in the durable recovery backup for inspection.
+      guard master.activeOwner == source, master.revision == proof!.revision,
+        try digest(master.canonical) == proof!.snapshotDigest
+      else { throw LocalProjectStateSynchronizationError.stateMismatch }
+      try requireSourceOwner(source, document: original)
+    }
+    master.approvedNextOwner = nil
+    master.approvalRevision = nil
+    master.approvalSnapshotDigest = nil
+    var document = original
+    for owner in owners { try apply(master.canonical, owner: owner, document: &document) }
+    try requireEqualSubsets(document: document, owners: owners, canonical: master.canonical)
+    try backup(document: original, previous: before, operation: "recover")
+    if journal != nil {
+      journal!.prepared = master
+      try writeRecord(journal!, to: journalURL)
+    } else {
+      let intent = ProjectSourceRecoveryIntent(sourceOwner: source, managedOwners: owners, prepared: master)
+      try writeRecord(intent, to: transactionDirectoryURL.appendingPathComponent("local-project-source-recovery.json"))
+    }
+    try commit(document: document, originalBytes: bytes, master: master)
   }
 
+  private var proofURL: URL {
+    transactionDirectoryURL.appendingPathComponent("local-project-verification.json")
+  }
   private var journalURL: URL {
     transactionDirectoryURL.appendingPathComponent("local-project-sync-journal.json")
   }
-  private var backupURL: URL {
-    transactionDirectoryURL.appendingPathComponent("local-project-state-before.json")
+
+  private func acquireLock() throws -> ProjectStateLock {
+    try ProjectStateFile.prepareDirectory(sharedStateURL.deletingLastPathComponent())
+    return try ProjectStateLock(url: sharedStateURL.appendingPathExtension("lock"))
+  }
+
+  private func readDocument() throws -> (Data, [String: ProjectJSON])? {
+    guard let bytes = try ProjectStateFile.readIfPresent(globalStateURL, requirePrivate: false) else {
+      throw LocalProjectStateSynchronizationError.invalidState
+    }
+    let document = try object(bytes)
+    guard document[registryKey] != nil else { return nil }
+    try validateRegistry(document)
+    return (bytes, document)
+  }
+
+  private func requireActiveOwner(_ owner: String, document: [String: ProjectJSON]) throws {
+    guard document[registryKey]?.object?["owner"]?.string == owner else {
+      throw LocalProjectStateSynchronizationError.identityMismatch
+    }
+  }
+
+  private func accepting(
+    _ current: ProjectSnapshot, owner: String, previous: ProjectAuthorityState?
+  ) throws -> ProjectAuthorityState {
+    guard var master = previous else {
+      return ProjectAuthorityState(revision: 1, activeOwner: owner, canonical: current)
+    }
+    let canonicalDigest = try digest(master.canonical)
+    let approvedHandoff = master.approvedNextOwner == owner
+      && master.approvalRevision == master.revision
+      && master.approvalSnapshotDigest == canonicalDigest
+    if master.activeOwner != owner && master.canonical != current && !approvedHandoff {
+      throw LocalProjectStateSynchronizationError.stateMismatch
+    }
+    if master.activeOwner != owner || master.canonical != current {
+      master.revision += 1
+      master.activeOwner = owner
+      master.canonical = current
+      master.approvedNextOwner = nil
+      master.approvalRevision = nil
+      master.approvalSnapshotDigest = nil
+    }
+    return master
+  }
+
+  private func managedOwners(_ urls: [URL], including active: String) throws -> [String] {
+    guard !urls.isEmpty else { throw LocalProjectStateSynchronizationError.identityUnavailable }
+    let owners = try urls.map { try rendererOwner(authenticationURL: $0) }
+    guard Set(owners).count == owners.count, owners.contains(active) else {
+      throw LocalProjectStateSynchronizationError.identityMismatch
+    }
+    return owners.sorted()
+  }
+
+  private func requireEqualSubsets(
+    document: [String: ProjectJSON], owners: [String], canonical: ProjectSnapshot
+  ) throws {
+    for owner in owners {
+      guard try snapshot(owner: owner, document: document) == canonical else {
+        throw LocalProjectStateSynchronizationError.stateMismatch
+      }
+    }
+  }
+
+  @discardableResult
+  private func verify(
+    document: [String: ProjectJSON], owner: String, expectedOwners: [String]?
+  ) throws -> ProjectVerificationProof {
+    guard let proof: ProjectVerificationProof = try readRecord(proofURL) else {
+      throw LocalProjectStateSynchronizationError.missingVerification
+    }
+    guard proof.activeOwner == owner, expectedOwners == nil || expectedOwners == proof.managedOwners,
+      let master = try readMaster(), master.activeOwner == owner,
+      master.revision == proof.revision, try digest(master.canonical) == proof.snapshotDigest
+    else { throw LocalProjectStateSynchronizationError.stateMismatch }
+    try requireSourceOwner(owner, document: document)
+    try requireEqualSubsets(document: document, owners: proof.managedOwners, canonical: master.canonical)
+    return proof
+  }
+
+  private func readMaster() throws -> ProjectAuthorityState? {
+    guard let bytes = try ProjectStateFile.readIfPresent(sharedStateURL) else { return nil }
+    let json = try object(bytes)
+    if json["schemaVersion"]?.number == 1 {
+      // Version one combined inactive copies. It is backed up before active initialization writes.
+      return nil
+    }
+    return try readRecord(sharedStateURL)
+  }
+
+  private func backup(
+    document: [String: ProjectJSON], previous: ProjectAuthorityState?, operation: String
+  ) throws {
+    let registry = document[registryKey]!.object!
+    var owners = Set(registry["inactive"]!.object!.keys)
+    if let active = registry["owner"]?.string { owners.insert(active) }
+    var snapshots: [String: ProjectSnapshot] = [:]
+    for owner in owners { snapshots[owner] = try snapshot(owner: owner, document: document) }
+    let history = sharedStateURL.deletingLastPathComponent().appendingPathComponent("Backups", isDirectory: true)
+    try ProjectStateFile.prepareDirectory(history)
+    if let bytes = try ProjectStateFile.readIfPresent(sharedStateURL),
+      try object(bytes)["schemaVersion"]?.number == 1 {
+      let legacyURL = history.appendingPathComponent("legacy-shared-state-v1.json")
+      if try ProjectStateFile.readIfPresent(legacyURL) == nil { try ProjectStateFile.write(bytes, to: legacyURL) }
+    }
+    let record = ProjectAuthorityBackup(operation: operation, previous: previous, ownerSnapshots: snapshots)
+    try writeRecord(record, to: history.appendingPathComponent(UUID().uuidString + ".json"))
+  }
+
+  private func requireUnchanged(_ bytes: Data) throws {
+    guard try ProjectStateFile.readIfPresent(globalStateURL, requirePrivate: false) == bytes else {
+      throw LocalProjectStateSynchronizationError.transactionConflict
+    }
+  }
+
+  private func saveMaster(_ master: ProjectAuthorityState) throws {
+    try writeRecord(master, to: sharedStateURL.appendingPathExtension("bak"))
+    try writeRecord(master, to: sharedStateURL)
   }
 
   private func commit(
-    document: [String: ProjectJSON], originalBytes: Data, shared: SharedProjectState
+    document: [String: ProjectJSON], originalBytes: Data, master: ProjectAuthorityState
   ) throws {
-    guard try ProjectStateFile.readIfPresent(globalStateURL, requirePrivate: false) == originalBytes else {
-      throw LocalProjectStateSynchronizationError.transactionConflict
-    }
+    try requireUnchanged(originalBytes)
     let data = try encode(ProjectJSON.object(document))
-    try ProjectStateFile.write(data, to: globalStateURL.appendingPathExtension("bak"), requirePrivate: false)
-    try ProjectStateFile.write(data, to: globalStateURL, requirePrivate: false)
-    try writeRecord(shared, to: sharedStateURL.appendingPathExtension("bak"))
-    try writeRecord(shared, to: sharedStateURL)
+    if data != originalBytes {
+      try ProjectStateFile.write(data, to: globalStateURL.appendingPathExtension("bak"), requirePrivate: false)
+      try requireUnchanged(originalBytes)
+      try ProjectStateFile.write(data, to: globalStateURL, requirePrivate: false)
+    }
+    try saveMaster(master)
+  }
+
+  private func digest(_ snapshot: ProjectSnapshot) throws -> String {
+    SHA256.hash(data: try encode(snapshot)).map { String(format: "%02x", $0) }.joined()
   }
 
   private func object(_ data: Data) throws -> [String: ProjectJSON] {
@@ -225,6 +405,7 @@ public final class LocalProjectStateSynchronizer: LocalProjectStateSynchronizing
         value = value.filter { ids.contains($0.key) }
       case "app-server-project-id-by-legacy-project-id-by-host":
         value = value.mapValues { .object(($0.object ?? [:]).filter { ids.contains($0.key) }) }
+          .filter { $0.value.object?.isEmpty == false }
       case "thread-project-membership-host-ids":
         value = value.filter { $0.value.string == "local" }
       default: break
@@ -249,6 +430,10 @@ public final class LocalProjectStateSynchronizer: LocalProjectStateSynchronizing
         })
       }
       result.atoms[key] = value
+    }
+    for key in ["unified-sidebar-project-order-v1", "unified-sidebar-pinned-order-v1"]
+      where result.atoms[key] == nil {
+      result.atoms[key] = .strings([])
     }
     for (key, value) in atoms where key.hasPrefix(Self.expandedPrefix)
       && ids.contains(String(key.dropFirst(Self.expandedPrefix.count))) {
@@ -361,101 +546,6 @@ public final class LocalProjectStateSynchronizer: LocalProjectStateSynchronizing
     return unique(result)
   }
 
-  private func ingest(
-    _ current: ProjectSnapshot, owner: String, into shared: inout SharedProjectState,
-    bootstrapSource: Bool
-  ) {
-    let baseline = shared.baselines[owner]
-    let known = baseline != nil
-    mergeObject(current.globals, baseline?.globals ?? [:], path: ["globals"],
-      known: known, overwriteUnknown: bootstrapSource, into: &shared)
-    mergeObject(current.atoms, baseline?.atoms ?? [:], path: ["atoms"],
-      known: known, overwriteUnknown: bootstrapSource, into: &shared)
-  }
-
-  private func mergeObject(
-    _ current: [String: ProjectJSON], _ baseline: [String: ProjectJSON], path: [String],
-    known: Bool, overwriteUnknown: Bool, into shared: inout SharedProjectState
-  ) {
-    for key in Set(current.keys).union(baseline.keys).sorted() {
-      let nextPath = path + [key]
-      let old = baseline[key]
-      guard let value = current[key] else {
-        if known, old != nil { remove(nextPath, from: &shared) }
-        continue
-      }
-      if known, value == old { continue }
-      let wasDeleted = shared.isDeleted(nextPath)
-      if wasDeleted, !known { continue }
-      if known, wasDeleted || old == nil { shared.clearDeletion(nextPath) }
-      if let items = value.strings, isMembershipList(nextPath) {
-        mergeList(items, baseline: old?.strings ?? [], path: nextPath, known: known, into: &shared)
-      } else if let object = value.object {
-        var overwrite = overwriteUnknown
-        if !known, nextPath.count == 3, path == ["globals", "local-projects"],
-          let incomingTime = object["updatedAt"]?.number,
-          let existingTime = shared.value(nextPath)?.object?["updatedAt"]?.number {
-          overwrite = incomingTime > existingTime
-            || incomingTime == existingTime && overwriteUnknown
-        }
-        mergeObject(object, wasDeleted ? [:] : old?.object ?? [:], path: nextPath, known: known,
-          overwriteUnknown: overwrite, into: &shared)
-      } else if !shared.isDeleted(nextPath), known || overwriteUnknown || shared.value(nextPath) == nil {
-        shared.set(value, at: nextPath)
-      }
-    }
-  }
-
-  private func isMembershipList(_ path: [String]) -> Bool {
-    path.count == 2 && (path.first == "globals" && Self.listKeys.contains(path[1])
-      || path.first == "atoms" && (path[1].hasPrefix("unified-sidebar-")
-        || path[1] == "app-server-pinned-thread-order-v1"))
-      || path.first == "globals" && path.contains("pendingThreadAssignmentIds")
-  }
-
-  private func mergeList(
-    _ current: [String], baseline: [String], path: [String], known: Bool,
-    into shared: inout SharedProjectState
-  ) {
-    let previous = shared.value(path)?.strings ?? []
-    let currentSet = Set(current)
-    let baselineSet = Set(baseline)
-    if known {
-      for item in baselineSet.subtracting(currentSet) { shared.tombstones.insert(pathKey(path + [item])) }
-      for item in currentSet.subtracting(baselineSet) { shared.clearDeletion(path + [item]) }
-    }
-    let retained = previous.filter { !shared.isDeleted(path + [$0]) }
-    let additions = current.filter { !baselineSet.contains($0) && !shared.isDeleted(path + [$0]) }
-    let merged = unique(retained + additions)
-    let ordered = known && current != baseline
-      ? unique(current.filter { merged.contains($0) } + merged) : merged
-    shared.set(.strings(ordered), at: path)
-  }
-
-  private func remove(_ path: [String], from shared: inout SharedProjectState) {
-    shared.tombstones.insert(pathKey(path))
-    shared.set(nil, at: path)
-  }
-
-  private func sanitize(_ shared: inout SharedProjectState) {
-    let projects = shared.canonical.globals["local-projects"]?.object ?? [:]
-    let ids = Set(projects.keys)
-    var globals = shared.canonical.globals
-    for key in ["project-order", "pinned-project-ids"] {
-      globals[key] = .strings((globals[key]?.strings ?? []).filter { ids.contains($0) })
-    }
-    for key in ["project-appearances", "sidebar-project-thread-orders"] {
-      globals[key] = .object((globals[key]?.object ?? [:]).filter { ids.contains($0.key) })
-    }
-    let memberships = (globals["thread-project-assignments"]?.object ?? [:]).filter {
-      ids.contains($0.value.object?["projectId"]?.string ?? "")
-    }
-    globals["thread-project-assignments"] = .object(memberships)
-    globals["projectless-thread-ids"] = .strings((globals["projectless-thread-ids"]?.strings ?? [])
-      .filter { memberships[$0] == nil })
-    shared.canonical.globals = globals
-  }
-
   private func rendererOwner(authenticationURL: URL) throws -> String {
     let data = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(at: authenticationURL)
     guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -486,7 +576,7 @@ public final class LocalProjectStateSynchronizer: LocalProjectStateSynchronizing
     guard let value = try? JSONDecoder().decode(T.self, from: bytes) else {
       throw LocalProjectStateSynchronizationError.invalidState
     }
-    guard value.schemaVersion == 1 else { throw LocalProjectStateSynchronizationError.unsupportedSchema }
+    guard value.schemaVersion == 2 else { throw LocalProjectStateSynchronizationError.unsupportedSchema }
     try value.validate()
     return value
   }
@@ -519,66 +609,70 @@ private struct ProjectSnapshot: Codable, Equatable {
   }
 }
 
-private struct SharedProjectState: Codable, ProjectStateVersioned {
-  var schemaVersion = 1
-  var revision = 0
-  var canonical = ProjectSnapshot()
-  var baselines: [String: ProjectSnapshot] = [:]
-  var tombstones: Set<String> = []
+private struct ProjectAuthorityState: Codable, Equatable, ProjectStateVersioned {
+  var schemaVersion = 2
+  var revision: Int
+  var activeOwner: String
+  var canonical: ProjectSnapshot
+  var approvedNextOwner: String?
+  var approvalRevision: Int?
+  var approvalSnapshotDigest: String?
 
   func validate() throws {
-    guard revision >= 0 else { throw LocalProjectStateSynchronizationError.invalidState }
-    try canonical.validate()
-    for baseline in baselines.values { try baseline.validate() }
-  }
-
-  func value(_ path: [String]) -> ProjectJSON? {
-    let root: [String: ProjectJSON] = path.first == "globals" ? canonical.globals : canonical.atoms
-    return path.dropFirst().reduce(ProjectJSON.object(root) as ProjectJSON?) { $0?.object?[$1] }
-  }
-  mutating func set(_ value: ProjectJSON?, at path: [String]) {
-    var root = path.first == "globals" ? canonical.globals : canonical.atoms
-    func update(_ object: inout [String: ProjectJSON], _ remaining: ArraySlice<String>) {
-      guard let key = remaining.first else { return }
-      if remaining.count == 1 { object[key] = value; return }
-      var child = object[key]?.object ?? [:]
-      update(&child, remaining.dropFirst())
-      object[key] = .object(child)
+    guard revision > 0, !activeOwner.isEmpty else { throw LocalProjectStateSynchronizationError.invalidState }
+    if approvedNextOwner != nil {
+      guard approvalRevision == revision, approvalSnapshotDigest?.isEmpty == false else {
+        throw LocalProjectStateSynchronizationError.invalidState
+      }
     }
-    update(&root, path.dropFirst())
-    if path.first == "globals" { canonical.globals = root } else { canonical.atoms = root }
-  }
-  func isDeleted(_ path: [String]) -> Bool {
-    (1...path.count).contains { tombstones.contains(pathKey(Array(path.prefix($0)))) }
-  }
-  mutating func clearDeletion(_ path: [String]) {
-    let key = pathKey(path)
-    tombstones = tombstones.filter { $0 != key && !$0.hasPrefix(key + "/") }
+    try canonical.validate()
   }
 }
 
-private struct ProjectSyncJournal: Codable, ProjectStateVersioned {
-  var schemaVersion = 1
+private struct ProjectVerificationProof: Codable, ProjectStateVersioned {
+  var schemaVersion = 2
+  let activeOwner: String
+  let managedOwners: [String]
+  let revision: Int
+  let snapshotDigest: String
+
+  func validate() throws {
+    guard revision > 0, !activeOwner.isEmpty, !snapshotDigest.isEmpty,
+      !managedOwners.isEmpty, Set(managedOwners).count == managedOwners.count,
+      managedOwners.contains(activeOwner)
+    else { throw LocalProjectStateSynchronizationError.invalidState }
+  }
+}
+
+private struct ProjectAuthorityJournal: Codable, ProjectStateVersioned {
+  var schemaVersion = 2
   let sourceOwner: String
   let targetOwner: String
-  var sourceBefore: ProjectSnapshot
-  var targetBefore: ProjectSnapshot
-  var prepared: SharedProjectState
+  let managedOwners: [String]
+  var prepared: ProjectAuthorityState
 
   func validate() throws {
-    guard !sourceOwner.isEmpty, !targetOwner.isEmpty, sourceOwner != targetOwner else {
-      throw LocalProjectStateSynchronizationError.invalidState
-    }
-    guard prepared.schemaVersion == 1 else { throw LocalProjectStateSynchronizationError.unsupportedSchema }
+    guard sourceOwner != targetOwner, managedOwners.contains(sourceOwner), managedOwners.contains(targetOwner),
+      prepared.schemaVersion == 2
+    else { throw LocalProjectStateSynchronizationError.invalidState }
     try prepared.validate()
-    try sourceBefore.validate()
-    try targetBefore.validate()
   }
 }
 
-private func pathKey(_ path: [String]) -> String {
-  path.map { $0.replacingOccurrences(of: "~", with: "~0").replacingOccurrences(of: "/", with: "~1") }.joined(separator: "/")
+private struct ProjectSourceRecoveryIntent: Codable {
+  var schemaVersion = 2
+  let sourceOwner: String
+  let managedOwners: [String]
+  let prepared: ProjectAuthorityState
 }
+
+private struct ProjectAuthorityBackup: Codable {
+  var schemaVersion = 2
+  let operation: String
+  let previous: ProjectAuthorityState?
+  let ownerSnapshots: [String: ProjectSnapshot]
+}
+
 private func unique(_ values: [String]) -> [String] {
   var seen: Set<String> = []
   return values.filter { seen.insert($0).inserted }

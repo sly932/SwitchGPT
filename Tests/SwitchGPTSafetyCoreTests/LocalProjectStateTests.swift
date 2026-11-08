@@ -14,7 +14,7 @@ final class LocalProjectStateTests: XCTestCase {
     temporaryDirectories.removeAll()
   }
 
-  func testFirstSwitchPreservesIndependentProjectsAndAccountSpecificState() throws {
+  func testInitializationUsesCurrentActiveStateAndPreservesAccountSpecificState() throws {
     let fixture = try makeFixture(
       sourceProjects: [
         project("source", name: "Source project"),
@@ -49,8 +49,8 @@ final class LocalProjectStateTests: XCTestCase {
 
     let prepared = try fixture.readState()
     XCTAssertEqual(fixture.owner(in: prepared), fixture.account(.a).owner)
-    XCTAssertEqual(try fixture.projectIDs(for: .b), ["g-p-target-cloud", "shared", "source", "target"])
-    XCTAssertEqual(try fixture.projectIDs(for: .a), ["g-p-source-cloud", "shared", "source", "target"])
+    XCTAssertEqual(try fixture.projectIDs(for: .b), ["g-p-target-cloud", "shared", "source"])
+    XCTAssertEqual(try fixture.projectIDs(for: .a), ["g-p-source-cloud", "shared", "source"])
     XCTAssertEqual(try fixture.project("shared", for: .b)["name"] as? String, "Active source version")
     assertJSONEqual(
       try fixture.snapshot(for: .b)["atoms"],
@@ -88,6 +88,7 @@ final class LocalProjectStateTests: XCTestCase {
     }
     try fixture.prepare(from: .a, to: .b)
     try fixture.selectOwner(.b)
+    try fixture.capture(.b)
     try fixture.editActiveGlobals { globals in
       var projects = globals["local-projects"] as! [String: Any]
       projects.removeValue(forKey: "removed")
@@ -121,6 +122,7 @@ final class LocalProjectStateTests: XCTestCase {
     XCTAssertEqual(try fixture.projectIDs(for: .b), ["added", "kept"])
     XCTAssertEqual(try fixture.globals(for: .b)["pinned-project-ids"] as? [String], [])
     try fixture.selectOwner(.b)
+    try fixture.capture(.b)
     try fixture.editActiveGlobals { globals in
       globals["pinned-project-ids"] = ["kept"]
     }
@@ -128,7 +130,7 @@ final class LocalProjectStateTests: XCTestCase {
     XCTAssertEqual(try fixture.globals(for: .a)["pinned-project-ids"] as? [String], ["kept"])
   }
 
-  func testDeletedProjectDoesNotReturnFromNeverSyncedThirdAccount() throws {
+  func testDeletedProjectDoesNotReturnFromStaleInactiveAccounts() throws {
     let fixture = try makeFixture(
       sourceProjects: [project("deleted"), project("kept")],
       targetProjects: [],
@@ -154,6 +156,7 @@ final class LocalProjectStateTests: XCTestCase {
     try fixture.writeState(state)
     try fixture.prepare(from: .a, to: .b)
     try fixture.selectOwner(.b)
+    try fixture.capture(.b)
     try fixture.editActiveGlobals { globals in
       var projects = globals["local-projects"] as! [String: Any]
       projects.removeValue(forKey: "deleted")
@@ -165,25 +168,26 @@ final class LocalProjectStateTests: XCTestCase {
 
     try fixture.prepare(from: .b, to: .c)
 
-    XCTAssertEqual(try fixture.projectIDs(for: .c), ["kept", "third-only"])
+    XCTAssertEqual(try fixture.projectIDs(for: .c), ["kept"])
     assertJSONEqual(try fixture.globals(for: .c)["thread-project-assignments"], [
       "moving-thread": ["projectKind": "local", "projectId": "kept"]
     ])
     try fixture.selectOwner(.c)
     try fixture.prepare(from: .c, to: .a)
-    XCTAssertEqual(try fixture.projectIDs(for: .a), ["kept", "third-only"])
+    XCTAssertEqual(try fixture.projectIDs(for: .a), ["kept"])
     try fixture.selectOwner(.a)
+    try fixture.capture(.a)
     try fixture.editActiveGlobals { globals in
       var projects = globals["local-projects"] as! [String: Any]
       projects["deleted"] = self.project("deleted", name: "Deliberately recreated")
       globals["local-projects"] = projects
     }
     try fixture.prepare(from: .a, to: .b)
-    XCTAssertEqual(try fixture.projectIDs(for: .b), ["deleted", "kept", "third-only"])
+    XCTAssertEqual(try fixture.projectIDs(for: .b), ["deleted", "kept"])
     XCTAssertEqual(try fixture.project("deleted", for: .b)["name"] as? String, "Deliberately recreated")
   }
 
-  func testIndependentProjectFieldEditsMergeWithoutOverwritingEitherSide() throws {
+  func testInactiveProjectChangesCannotOverrideCurrentActiveState() throws {
     let fixture = try makeFixture(
       sourceProjects: [project("shared", name: "Original", roots: ["/fixture/original"])],
       targetProjects: []
@@ -193,7 +197,7 @@ final class LocalProjectStateTests: XCTestCase {
     try fixture.editProject("shared") { project in
       project["rootPaths"] = ["/fixture/changed-in-b"]
     }
-    // Simulate selecting A outside SwitchGPT after B has saved its changes.
+    // The inactive B snapshot contains an old independent edit. Only active A is authoritative.
     try fixture.selectOwner(.a)
     try fixture.editProject("shared") { project in
       project["name"] = "Renamed in A"
@@ -203,13 +207,14 @@ final class LocalProjectStateTests: XCTestCase {
 
     let result = try fixture.project("shared", for: .b)
     XCTAssertEqual(result["name"] as? String, "Renamed in A")
-    XCTAssertEqual(result["rootPaths"] as? [String], ["/fixture/changed-in-b"])
+    XCTAssertEqual(result["rootPaths"] as? [String], ["/fixture/original"])
   }
 
   func testEmptyTrackedSourceDeletesAllProjectsInsteadOfRestoringStaleDestination() throws {
     let fixture = try makeFixture(sourceProjects: [project("deleted")], targetProjects: [])
     try fixture.prepare(from: .a, to: .b)
     try fixture.selectOwner(.b)
+    try fixture.capture(.b)
     try fixture.editActiveGlobals { globals in
       globals["local-projects"] = [:] as [String: Any]
     }
@@ -219,17 +224,20 @@ final class LocalProjectStateTests: XCTestCase {
     XCTAssertEqual(try fixture.projectIDs(for: .a), [])
   }
 
-  func testSourceSnapshotCanBeReadAfterDesktopClearsActiveOwnerOnExit() throws {
+  func testCaptureRefusesMissingOrMismatchedActiveOwnerWithoutChangingCanonical() throws {
     let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    try fixture.initializeActive(.a)
+    let sharedBefore = try Data(contentsOf: fixture.sharedStateURL)
     try fixture.selectOwner(nil)
+    let globalBefore = try Data(contentsOf: fixture.globalStateURL)
 
-    try fixture.prepare(from: .a, to: .b)
+    XCTAssertThrowsError(try fixture.capture(.a))
 
-    let state = try fixture.readState()
-    XCTAssertNil(fixture.owner(in: state))
-    XCTAssertEqual(try fixture.projectIDs(for: .b), ["source"])
-    XCTAssertEqual(try fixture.projectIDs(for: .a), ["source"])
-    XCTAssertNil(state["local-projects"])
+    XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), sharedBefore)
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), globalBefore)
+    try fixture.selectOwner(.b)
+    XCTAssertThrowsError(try fixture.capture(.a))
+    XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), sharedBefore)
   }
 
   func testRendererScopesRemainDistinctWhenAccountsShareAnEmail() throws {
@@ -318,10 +326,10 @@ final class LocalProjectStateTests: XCTestCase {
     ])
   }
 
-  func testMissingStateAndLegacyStateWithoutOwnerRegistryRemainUntouched() throws {
+  func testMissingStateFailsBeforeSwitchAndLegacyStateRemainsUntouched() throws {
     let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
     try FileManager.default.removeItem(at: fixture.globalStateURL)
-    try fixture.prepare(from: .a, to: .b)
+    XCTAssertThrowsError(try fixture.prepare(from: .a, to: .b))
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.globalStateURL.path))
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.sharedStateURL.path))
 
@@ -337,6 +345,8 @@ final class LocalProjectStateTests: XCTestCase {
     let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [project("target")])
     let transaction = fixture.nextTransactionURL()
     let synchronizer = fixture.synchronizer(transaction: transaction)
+    try synchronizer.initializeActive(authenticationURL: fixture.account(.a).authenticationURL)
+    try fixture.verifyAll(.a, using: synchronizer)
     try synchronizer.prepareSwitch(
       sourceAuthenticationURL: fixture.account(.a).authenticationURL,
       targetAuthenticationURL: fixture.account(.b).authenticationURL
@@ -348,11 +358,13 @@ final class LocalProjectStateTests: XCTestCase {
     )
     assertJSONEqual(try fixture.readState(), first)
     try fixture.selectOwner(.b)
+    try fixture.capture(.b)
     try fixture.editActiveGlobals { globals in
       var projects = globals["local-projects"] as! [String: Any]
       projects["target-runtime-addition"] = self.project("target-runtime-addition")
       globals["local-projects"] = projects
     }
+    try fixture.capture(.b)
     let beforeRecovery = try fixture.readState()
 
     let recovery = fixture.synchronizer(transaction: transaction)
@@ -373,6 +385,269 @@ final class LocalProjectStateTests: XCTestCase {
     assertJSONEqual(try fixture.readState(), recovered)
     try resumedRecovery.recoverSource(sourceAuthenticationURL: fixture.account(.a).authenticationURL)
     assertJSONEqual(try fixture.readState(), recovered)
+  }
+
+  func testStartupCaptureTracksDeletionAndUnassignmentBeforeFirstSwitch() throws {
+    let fixture = try makeFixture(
+      sourceProjects: [project("removed"), project("kept")],
+      targetProjects: [project("removed"), project("kept"), project("stale-target-only")]
+    )
+    try fixture.editActiveGlobals { globals in
+      globals["thread-project-assignments"] = [
+        "unassigned-later": ["projectKind": "local", "projectId": "kept"]
+      ]
+      globals["pinned-project-ids"] = ["kept"]
+    }
+    try fixture.initializeActive(.a)
+    try fixture.editActiveGlobals { globals in
+      globals["local-projects"] = ["kept": self.project("kept"), "new": self.project("new")]
+      globals["thread-project-assignments"] = [:] as [String: Any]
+      globals["projectless-thread-ids"] = ["unassigned-later"]
+      globals["pinned-project-ids"] = [] as [String]
+      globals["project-order"] = ["new", "kept"]
+    }
+    try fixture.capture(.a)
+
+    try fixture.prepare(from: .a, to: .b)
+
+    for name in LocalProjectAccount.allCases {
+      XCTAssertEqual(try fixture.projectIDs(for: name), ["kept", "new"])
+      let globals = try fixture.globals(for: name)
+      assertJSONEqual(globals["thread-project-assignments"], [:] as [String: Any])
+      XCTAssertEqual(globals["projectless-thread-ids"] as? [String], ["unassigned-later"])
+      XCTAssertEqual(globals["pinned-project-ids"] as? [String], [])
+      XCTAssertEqual(globals["project-order"] as? [String], ["new", "kept"])
+    }
+  }
+
+  func testInactiveOnlySaveEchoCannotChangeCanonical() throws {
+    let fixture = try makeFixture(sourceProjects: [project("kept")], targetProjects: [project("stale")])
+    try fixture.initializeActive(.a)
+    try fixture.editProject("kept") { project in
+      project["name"] = "Current active edit"
+    }
+    try fixture.capture(.a)
+    let canonicalBefore = try Data(contentsOf: fixture.sharedStateURL)
+    try fixture.editInactiveGlobals(.b) { globals in
+      globals["local-projects"] = ["obsolete": self.project("obsolete")]
+    }
+
+    try fixture.capture(.a)
+
+    XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), canonicalBefore)
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    try fixture.verifyAll(.a, using: service)
+    for name in LocalProjectAccount.allCases {
+      XCTAssertEqual(try fixture.projectIDs(for: name), ["kept"])
+      XCTAssertEqual(try fixture.project("kept", for: name)["name"] as? String, "Current active edit")
+    }
+  }
+
+  func testUnexpectedOwnerWithStaleLocalStateCannotReplaceCanonical() throws {
+    let fixture = try makeFixture(sourceProjects: [project("current")], targetProjects: [project("obsolete")])
+    try fixture.initializeActive(.a)
+    let canonicalBefore = try Data(contentsOf: fixture.sharedStateURL)
+    try fixture.selectOwner(.b)
+    let globalBefore = try Data(contentsOf: fixture.globalStateURL)
+
+    XCTAssertThrowsError(try fixture.capture(.b)) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .stateMismatch)
+    }
+
+    XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), canonicalBefore)
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), globalBefore)
+
+    let preflightOnly = try makeFixture(sourceProjects: [project("current")], targetProjects: [])
+    try preflightOnly.initializeActive(.a)
+    let gate = preflightOnly.synchronizer(transaction: preflightOnly.nextTransactionURL())
+    try preflightOnly.verifyAll(.a, using: gate)
+    let canonicalAfterPreflight = try Data(contentsOf: preflightOnly.sharedStateURL)
+    try preflightOnly.selectOwner(.b)
+    try preflightOnly.editProject("current") { project in project["name"] = "Unapproved owner edit" }
+    XCTAssertThrowsError(try preflightOnly.capture(.b)) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .stateMismatch)
+    }
+    XCTAssertEqual(try Data(contentsOf: preflightOnly.sharedStateURL), canonicalAfterPreflight)
+
+  }
+
+  func testAllSixSnapshotsAreVerifiedAndPostExitMismatchRefusesSwitch() throws {
+    let fixture = try makeFixture(sourceProjects: [project("current")], targetProjects: [project("obsolete")])
+    try fixture.initializeActive(.a)
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    try fixture.verifyAll(.a, using: service)
+    let expected = try fixture.globals(for: .a)
+    let expectedAtoms = try XCTUnwrap(try fixture.snapshot(for: .a)["atoms"] as? [String: Any])
+    for name in LocalProjectAccount.allCases {
+      assertJSONEqual(try fixture.globals(for: name), expected)
+      let atoms = try XCTUnwrap(try fixture.snapshot(for: name)["atoms"] as? [String: Any])
+      for key in localProjectAtomKeys { assertJSONEqual(atoms[key], expectedAtoms[key]) }
+    }
+    try fixture.editInactiveGlobals(.f) { globals in
+      globals["local-projects"] = ["stale-after-exit": self.project("stale-after-exit")]
+    }
+    try fixture.editActiveGlobals { globals in
+      globals["local-projects"] = [:] as [String: Any]
+    }
+    let changedState = try Data(contentsOf: fixture.globalStateURL)
+
+    XCTAssertThrowsError(try service.verifyAfterExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .stateMismatch)
+    }
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    ))
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), changedState)
+
+    try service.recoverSource(sourceAuthenticationURL: fixture.account(.a).authenticationURL)
+    for name in LocalProjectAccount.allCases {
+      assertJSONEqual(try fixture.globals(for: name), expected)
+    }
+    XCTAssertEqual(fixture.owner(in: try fixture.readState()), fixture.account(.a).owner)
+    let recoveredCanonical = try Data(contentsOf: fixture.sharedStateURL)
+    try fixture.selectOwner(.b)
+    try fixture.editProject("current") { project in project["name"] = "Unapproved target edit" }
+    XCTAssertThrowsError(try fixture.capture(.b))
+    XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), recoveredCanonical)
+  }
+
+  func testVerifiedHandoffAcceptsFreshTargetChangesBeforeFirstMonitorTick() throws {
+    let fixture = try makeFixture(
+      sourceProjects: [project("old"), project("new")],
+      targetProjects: [project("stale")]
+    )
+    try fixture.editActiveGlobals { globals in
+      globals["thread-project-assignments"] = [
+        "moving-thread": ["projectKind": "local", "projectId": "old"]
+      ]
+      globals["pinned-project-ids"] = ["old"]
+    }
+    try fixture.prepare(from: .a, to: .b)
+    try fixture.selectOwner(.b)
+    // The user edits B before the background monitor has observed B's first saved state.
+    try fixture.editActiveGlobals { globals in
+      var projects = globals["local-projects"] as! [String: Any]
+      projects["fresh"] = self.project("fresh")
+      globals["local-projects"] = projects
+      globals["thread-project-assignments"] = [
+        "moving-thread": ["projectKind": "local", "projectId": "new"]
+      ]
+      globals["pinned-project-ids"] = [] as [String]
+    }
+
+    try fixture.capture(.b)
+
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    try fixture.verifyAll(.b, using: service)
+    for name in LocalProjectAccount.allCases {
+      XCTAssertEqual(try fixture.projectIDs(for: name), ["fresh", "new", "old"])
+      assertJSONEqual(try fixture.globals(for: name)["thread-project-assignments"], [
+        "moving-thread": ["projectKind": "local", "projectId": "new"]
+      ])
+      XCTAssertEqual(try fixture.globals(for: name)["pinned-project-ids"] as? [String], [])
+    }
+  }
+
+  func testSwitchRequiresDurableVerificationAndEveryManagedProfile() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    try fixture.initializeActive(.a)
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let original = try Data(contentsOf: fixture.globalStateURL)
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .missingVerification)
+    }
+    try fixture.writePrivate(Data("{invalid-profile".utf8), to: fixture.account(.f).authenticationURL)
+
+    XCTAssertThrowsError(try fixture.verifyAll(.a, using: service))
+
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), original)
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    ))
+  }
+
+  func testChangedCanonicalRevisionInvalidatesPendingHandoffProof() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    try fixture.initializeActive(.a)
+    let transaction = fixture.nextTransactionURL()
+    let service = fixture.synchronizer(transaction: transaction)
+    try fixture.verifyAll(.a, using: service)
+    try fixture.editProject("source") { project in project["name"] = "Changed after verification" }
+    try fixture.capture(.a)
+    let canonicalAfterEdit = try Data(contentsOf: fixture.sharedStateURL)
+
+    XCTAssertThrowsError(try service.verifyAfterExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    ))
+    try fixture.writePrivate(
+      Data("{invalid-proof".utf8),
+      to: transaction.appendingPathComponent("local-project-verification.json")
+    )
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .invalidState)
+    }
+    try fixture.selectOwner(.b)
+    try fixture.editProject("source") { project in project["name"] = "Stale owner edit" }
+    XCTAssertThrowsError(try fixture.capture(.b))
+    XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), canonicalAfterEdit)
+  }
+
+  func testSynchronizationWriteFailureCannotCreateSuccessfulVerification() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [project("stale")])
+    try fixture.initializeActive(.a)
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    try FileManager.default.createDirectory(
+      at: fixture.globalStateURL.appendingPathExtension("bak"),
+      withIntermediateDirectories: false,
+      attributes: [.posixPermissions: 0o700]
+    )
+    let original = try Data(contentsOf: fixture.globalStateURL)
+
+    XCTAssertThrowsError(try fixture.verifyAll(.a, using: service))
+
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), original)
+    XCTAssertThrowsError(try service.verifyAfterExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
+  }
+
+  func testVerifiedExitAllowsOnlyTopologyChangeToNilOwner() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    try fixture.initializeActive(.a)
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    try fixture.verifyAll(.a, using: service)
+    try fixture.selectOwner(nil)
+
+    try service.verifyAfterExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    )
+
+    XCTAssertNil(fixture.owner(in: try fixture.readState()))
+    for name in LocalProjectAccount.allCases {
+      XCTAssertEqual(try fixture.projectIDs(for: name), ["source"])
+    }
   }
 
   private func makeFixture(
@@ -427,6 +702,7 @@ private let localProjectGlobalKeys = [
   "thread-project-assignments", "thread-project-membership-host-ids",
   "thread-writable-roots", "project-appearances",
   "app-server-project-id-by-legacy-project-id-by-host",
+  "app-server-projects-migration-by-host",
   "sidebar-project-thread-orders", "thread-projectless-output-directories",
   "thread-workspace-root-hints", "projectless-thread-ids", "selected-project",
 ]
@@ -437,7 +713,7 @@ private let localProjectAtomKeys: Set<String> = [
   "pinned-sidebar-sort-mode-v1", "sidebar-project-list-expanded-v1",
 ]
 
-private enum LocalProjectAccount: String, CaseIterable { case a, b, c }
+private enum LocalProjectAccount: String, CaseIterable { case a, b, c, d, e, f }
 
 private struct LocalProjectAccountFixture {
   let accountID: String
@@ -494,6 +770,9 @@ private struct LocalProjectFixture {
       "inactive": [
         account(.b).owner: snapshot(.b, projects: targetProjects),
         account(.c).owner: snapshot(.c, projects: thirdProjects),
+        account(.d).owner: snapshot(.d, projects: []),
+        account(.e).owner: snapshot(.e, projects: []),
+        account(.f).owner: snapshot(.f, projects: []),
       ],
     ]
     try writeState(state)
@@ -519,8 +798,39 @@ private struct LocalProjectFixture {
     ]
   }
 
+  var managedAuthenticationURLs: [URL] {
+    LocalProjectAccount.allCases.map { account($0).authenticationURL }
+  }
+
+  func initializeActive(_ source: LocalProjectAccount) throws {
+    try synchronizer(transaction: nextTransactionURL()).initializeActive(
+      authenticationURL: account(source).authenticationURL
+    )
+  }
+
+  func capture(_ source: LocalProjectAccount) throws {
+    try synchronizer(transaction: nextTransactionURL()).captureActive(
+      authenticationURL: account(source).authenticationURL
+    )
+  }
+
+  func verifyAll(_ source: LocalProjectAccount, using synchronizer: LocalProjectStateSynchronizer) throws {
+    try synchronizer.synchronizeAndVerifyAll(
+      activeAuthenticationURL: account(source).authenticationURL,
+      managedAuthenticationURLs: managedAuthenticationURLs
+    )
+  }
+
   func prepare(from source: LocalProjectAccount, to target: LocalProjectAccount) throws {
-    try synchronizer(transaction: nextTransactionURL()).prepareSwitch(
+    let service = synchronizer(transaction: nextTransactionURL())
+    try service.initializeActive(authenticationURL: account(source).authenticationURL)
+    try service.captureActive(authenticationURL: account(source).authenticationURL)
+    try verifyAll(source, using: service)
+    try service.verifyAfterExit(
+      activeAuthenticationURL: account(source).authenticationURL,
+      managedAuthenticationURLs: managedAuthenticationURLs
+    )
+    try service.prepareSwitch(
       sourceAuthenticationURL: account(source).authenticationURL,
       targetAuthenticationURL: account(target).authenticationURL
     )
@@ -574,7 +884,8 @@ private struct LocalProjectFixture {
   }
 
   func globals(for name: LocalProjectAccount) throws -> [String: Any] {
-    try XCTUnwrap(try snapshot(for: name)["globals"] as? [String: Any])
+    let globals = try XCTUnwrap(try snapshot(for: name)["globals"] as? [String: Any])
+    return globals.filter { localProjectGlobalKeys.contains($0.key) }
   }
 
   func projectIDs(for name: LocalProjectAccount) throws -> [String] {
@@ -590,6 +901,23 @@ private struct LocalProjectFixture {
   func editActiveGlobals(_ edit: (inout [String: Any]) -> Void) throws {
     var state = try readState()
     edit(&state)
+    try writeState(state)
+  }
+
+  func editInactiveGlobals(
+    _ name: LocalProjectAccount,
+    edit: (inout [String: Any]) -> Void
+  ) throws {
+    var state = try readState()
+    var registry = state["electron-account-renderer-state-v1"] as! [String: Any]
+    var inactive = registry["inactive"] as! [String: Any]
+    var snapshot = inactive[account(name).owner] as! [String: Any]
+    var globals = snapshot["globals"] as! [String: Any]
+    edit(&globals)
+    snapshot["globals"] = globals
+    inactive[account(name).owner] = snapshot
+    registry["inactive"] = inactive
+    state["electron-account-renderer-state-v1"] = registry
     try writeState(state)
   }
 

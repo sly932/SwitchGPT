@@ -16,6 +16,7 @@ import sys
 directory = Path(sys.argv[1])
 files = [
     Path('Tests/SwitchGPTSafetyCoreTests/LocalProjectStateTests.swift'),
+    Path('Tests/SwitchGPTSafetyCoreTests/LocalProjectStateMonitorTests.swift'),
     Path('Tests/SwitchGPTSafetyCoreTests/DesktopIntegrationTests.swift'),
 ]
 calls = []
@@ -52,6 +53,7 @@ for path in files:
       test.tearDown()
       try test.tearDownWithError()
       print("PASS: {classes[0]}.{name}")
+      fflush(nil)
     }}''')
 
 shim = r'''
