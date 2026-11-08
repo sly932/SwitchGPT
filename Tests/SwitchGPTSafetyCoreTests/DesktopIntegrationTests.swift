@@ -149,8 +149,114 @@ final class DesktopIntegrationTests: XCTestCase {
     XCTAssertThrowsError(try adapter.install(identity: fixture.identityB))
 
     XCTAssertEqual(try Data(contentsOf: fixture.activeAuthenticationURL), before)
-    XCTAssertTrue(try fixture.installer.hasRecoverySnapshot())
+    XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
     XCTAssertEqual(projects.prepareCount, 1)
+  }
+
+  func testAllAccountPreflightFailureRejectsBeforeDesktopStops() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    let managedURLs = (1...6).map { fixture.root.appendingPathComponent("managed-\($0).json") }
+    let authority = FixtureProjectAuthority(
+      synchronize: { urls in
+        XCTAssertTrue(process.running)
+        XCTAssertEqual(urls, managedURLs)
+        throw LocalProjectStateSynchronizationError.stateMismatch
+      }
+    )
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: authority,
+      activeAuthenticationURL: fixture.activeAuthenticationURL,
+      managedAuthenticationURLs: managedURLs
+    )
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("gate-transaction"))
+    let authentication = try Data(contentsOf: fixture.activeAuthenticationURL)
+
+    XCTAssertThrowsError(try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB))
+
+    XCTAssertEqual(process.stopCount, 0)
+    XCTAssertEqual(process.startCount, 0)
+    XCTAssertNil(try store.load())
+    XCTAssertEqual(try Data(contentsOf: fixture.activeAuthenticationURL), authentication)
+    XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
+    XCTAssertEqual(authority.synchronizeCount, 1)
+  }
+
+  func testPostExitMismatchRejectsTargetAndReopensSource() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    let authority = FixtureProjectAuthority(
+      synchronize: { _ in XCTAssertTrue(process.running) },
+      verify: {
+        XCTAssertFalse(process.running)
+        throw LocalProjectStateSynchronizationError.stateMismatch
+      }
+    )
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: authority
+    )
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("post-exit-transaction"))
+    let authentication = try Data(contentsOf: fixture.activeAuthenticationURL)
+
+    let result = try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB)
+
+    XCTAssertEqual(result.phase, .rolledBack)
+    XCTAssertFalse(result.targetWasInstalled)
+    XCTAssertEqual(authority.synchronizeCount, 1)
+    XCTAssertEqual(authority.verifyCount, 1)
+    XCTAssertEqual(authority.recoverCount, 1)
+    XCTAssertEqual(process.stopCount, 1)
+    XCTAssertEqual(process.startCount, 1)
+    XCTAssertEqual(try Data(contentsOf: fixture.activeAuthenticationURL), authentication)
+    XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
+  }
+
+  func testEarlyArmedRecoveryUsesSnapshotCreatedLaterByTheSwitch() throws {
+    let fixture = try makeFixture()
+    let projects = FixtureProjectStateSynchronizer()
+    let recovery = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: [DesktopCredentialProfile(
+        identity: fixture.identityA,
+        authenticationFileURL: fixture.activeAuthenticationURL
+      )],
+      processController: FixtureProcessController(running: false),
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: projects,
+      recoveryAuthenticationURL: fixture.recoverySnapshotURL
+    )
+
+    try recovery.install(identity: fixture.identityA)
+    XCTAssertEqual(projects.recoverySourceURLs, [fixture.activeAuthenticationURL])
+    XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
+
+    let forward = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: FixtureProcessController(running: false),
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer
+    )
+    try forward.install(identity: fixture.identityB)
+    XCTAssertEqual(try forward.currentIdentity(), fixture.identityB)
+
+    try recovery.install(identity: fixture.identityA)
+
+    XCTAssertEqual(projects.recoverySourceURLs, [fixture.activeAuthenticationURL, fixture.recoverySnapshotURL])
+    XCTAssertEqual(try recovery.currentIdentity(), fixture.identityA)
   }
 
   func testMissingSnapshotFailsClosedWhenActiveIdentityIsNotSource() throws {
@@ -378,6 +484,7 @@ private enum FixtureIdentity { case a, b }
 private final class FixtureProjectStateSynchronizer: LocalProjectStateSynchronizing {
   var prepareCount = 0
   var recoveryCount = 0
+  var recoverySourceURLs: [URL] = []
   let prepare: () throws -> Void
   let recover: () throws -> Void
 
@@ -393,8 +500,38 @@ private final class FixtureProjectStateSynchronizer: LocalProjectStateSynchroniz
 
   func recoverSource(sourceAuthenticationURL: URL) throws {
     recoveryCount += 1
+    recoverySourceURLs.append(sourceAuthenticationURL)
     try recover()
   }
+}
+
+private final class FixtureProjectAuthority: LocalProjectAuthorityManaging {
+  var synchronizeCount = 0
+  var verifyCount = 0
+  var recoverCount = 0
+  let synchronize: ([URL]) throws -> Void
+  let verify: () throws -> Void
+
+  init(
+    synchronize: @escaping ([URL]) throws -> Void = { _ in },
+    verify: @escaping () throws -> Void = {}
+  ) {
+    self.synchronize = synchronize
+    self.verify = verify
+  }
+
+  func initializeActive(authenticationURL: URL) throws {}
+  func captureActive(authenticationURL: URL) throws {}
+  func synchronizeAndVerifyAll(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws {
+    synchronizeCount += 1
+    try synchronize(managedAuthenticationURLs)
+  }
+  func verifyAfterExit(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws {
+    verifyCount += 1
+    try verify()
+  }
+  func prepareSwitch(sourceAuthenticationURL: URL, targetAuthenticationURL: URL) throws {}
+  func recoverSource(sourceAuthenticationURL: URL) throws { recoverCount += 1 }
 }
 
 private final class FixtureProcessController: DesktopProcessControlling {

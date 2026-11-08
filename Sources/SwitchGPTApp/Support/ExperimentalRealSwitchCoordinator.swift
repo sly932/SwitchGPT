@@ -75,6 +75,34 @@ enum ExperimentalRealSwitchCoordinator {
   private static let targetApplicationURL = URL(fileURLWithPath: "/Applications/ChatGPT.app")
   private static let failureInjectionLock = NSLock()
   private nonisolated(unsafe) static var failureInjectionConsumed = false
+  static let activeAuthenticationURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".codex/auth.json")
+  static let globalProjectStateURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".codex/.codex-global-state.json")
+  static let sharedProjectStateURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/SwitchGPT-sly/LocalProjects/shared-state-v1.json")
+  static let projectStateMonitor = LocalProjectStateMonitor(
+    observedURLs: [activeAuthenticationURL, globalProjectStateURL, sharedProjectStateURL],
+    update: {
+      try makeProjectStateSynchronizer(
+        transactionDirectoryURL: sharedProjectStateURL.deletingLastPathComponent()
+          .appendingPathComponent("Monitoring", isDirectory: true)
+      ).captureActive(authenticationURL: activeAuthenticationURL)
+    },
+    reportFailure: {
+      NSLog("SwitchGPT could not capture the active account's local project state; switching will require successful verification.")
+    }
+  )
+
+  private static func makeProjectStateSynchronizer(
+    transactionDirectoryURL: URL
+  ) -> LocalProjectStateSynchronizer {
+    LocalProjectStateSynchronizer(
+      globalStateURL: globalProjectStateURL,
+      sharedStateURL: sharedProjectStateURL,
+      transactionDirectoryURL: transactionDirectoryURL
+    )
+  }
 
   static func preflight(
     target: AccountRecord,
@@ -151,15 +179,32 @@ enum ExperimentalRealSwitchCoordinator {
     )
   }
 
-  static func perform(_ plan: RealSwitchPlan, bundle: Bundle = .main) throws
+  static func perform(
+    _ plan: RealSwitchPlan, accounts: [AccountRecord], bundle: Bundle = .main
+  ) throws
     -> RealSwitchResult
   {
     guard try validateTargetApplication() == plan.targetApplicationCompatibility else {
       throw ExperimentalRealSwitchError.targetApplicationChanged
     }
+    let managedAuthenticationURLs = try accounts.map { account in
+      guard let url = authenticationURL(for: account) else {
+        throw ExperimentalRealSwitchError.activeAccountNotConfigured
+      }
+      return url
+    }
 
     let transactionDirectory = try makeTransactionDirectory()
     let store = try TransactionStore(directoryURL: transactionDirectory)
+    defer {
+      // A rejected pre-quit project check has not created a switch transaction.
+      // Keep nonterminal or unreadable transactions for the recovery supervisor.
+      do {
+        if try store.load() == nil {
+          try? FileManager.default.removeItem(at: transactionDirectory)
+        }
+      } catch {}
+    }
     let activeAuthenticationURL = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".codex", isDirectory: true)
       .appendingPathComponent("auth.json")
@@ -203,14 +248,11 @@ enum ExperimentalRealSwitchCoordinator {
       processController: MacOSChatGPTProcessController(allowsTerminationFallback: false),
       identityReader: identityReader,
       authenticationInstaller: installer,
-      projectStateSynchronizer: LocalProjectStateSynchronizer(
-        globalStateURL: activeAuthenticationURL.deletingLastPathComponent()
-          .appendingPathComponent(".codex-global-state.json"),
-        sharedStateURL: transactionDirectory.deletingLastPathComponent()
-          .deletingLastPathComponent()
-          .appendingPathComponent("LocalProjects/shared-state-v1.json"),
+      projectStateSynchronizer: makeProjectStateSynchronizer(
         transactionDirectoryURL: transactionDirectory
-      )
+      ),
+      activeAuthenticationURL: activeAuthenticationURL,
+      managedAuthenticationURLs: managedAuthenticationURLs
     )
     let hostEvidence = try SystemSupervisorHostEvidenceCollector.collect(
       configuration: SupervisorHostConfiguration(

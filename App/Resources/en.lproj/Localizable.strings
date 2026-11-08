@@ -66,3 +66,4 @@
 "Clear" = "Clear";
 
 "Unable to display the local plan. Open HTML in your browser." = "Unable to display the local plan. Open HTML in your browser.";
+"Local project synchronization or verification failed. The account switch was blocked." = "Local project synchronization or verification failed. The account switch was blocked.";

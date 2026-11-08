@@ -10,6 +10,9 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
   private let identityReader: InstalledIdentityReading
   private let authenticationInstaller: AuthenticationStateInstalling
   private let projectStateSynchronizer: LocalProjectStateSynchronizing?
+  private let activeAuthenticationURL: URL
+  private let managedAuthenticationURLs: [URL]
+  private let recoveryAuthenticationURL: URL?
 
   public init(
     sourceIdentity: IdentityID,
@@ -17,7 +20,10 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     processController: DesktopProcessControlling,
     identityReader: InstalledIdentityReading,
     authenticationInstaller: AuthenticationStateInstalling,
-    projectStateSynchronizer: LocalProjectStateSynchronizing? = nil
+    projectStateSynchronizer: LocalProjectStateSynchronizing? = nil,
+    activeAuthenticationURL: URL? = nil,
+    managedAuthenticationURLs: [URL]? = nil,
+    recoveryAuthenticationURL: URL? = nil
   ) throws {
     var profilesByIdentity: [IdentityID: DesktopCredentialProfile] = [:]
     for profile in profiles {
@@ -34,6 +40,19 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     self.identityReader = identityReader
     self.authenticationInstaller = authenticationInstaller
     self.projectStateSynchronizer = projectStateSynchronizer
+    self.activeAuthenticationURL = activeAuthenticationURL
+      ?? profilesByIdentity[sourceIdentity]!.authenticationFileURL
+    self.managedAuthenticationURLs = managedAuthenticationURLs
+      ?? profiles.map(\.authenticationFileURL)
+    self.recoveryAuthenticationURL = recoveryAuthenticationURL
+  }
+
+  public func prepareSwitch() throws {
+    try (projectStateSynchronizer as? LocalProjectAuthorityManaging)?
+      .synchronizeAndVerifyAll(
+        activeAuthenticationURL: activeAuthenticationURL,
+        managedAuthenticationURLs: managedAuthenticationURLs
+      )
   }
 
   public func isRunning() throws -> Bool {
@@ -53,13 +72,17 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
       throw DesktopIntegrationError.desktopDidNotTerminate
     }
     if identity == sourceIdentity {
-      if try authenticationInstaller.hasRecoverySnapshot() {
-        guard let source = profilesByIdentity[sourceIdentity] else {
-          throw DesktopIntegrationError.missingProfile
-        }
-        try projectStateSynchronizer?.recoverSource(
-          sourceAuthenticationURL: source.authenticationFileURL
-        )
+      guard let source = profilesByIdentity[sourceIdentity] else {
+        throw DesktopIntegrationError.missingProfile
+      }
+      let hasRecoverySnapshot = try authenticationInstaller.hasRecoverySnapshot()
+      let sourceAuthenticationURL = hasRecoverySnapshot
+        ? recoveryAuthenticationURL ?? source.authenticationFileURL
+        : source.authenticationFileURL
+      try projectStateSynchronizer?.recoverSource(
+        sourceAuthenticationURL: sourceAuthenticationURL
+      )
+      if hasRecoverySnapshot {
         try authenticationInstaller.restoreRecoverySnapshot()
         return
       }
@@ -72,14 +95,19 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     guard let profile = profilesByIdentity[identity] else {
       throw DesktopIntegrationError.missingProfile
     }
-    try authenticationInstaller.snapshotActiveStateIfNeeded()
     guard let source = profilesByIdentity[sourceIdentity] else {
       throw DesktopIntegrationError.missingProfile
     }
+    try (projectStateSynchronizer as? LocalProjectAuthorityManaging)?
+      .verifyAfterExit(
+        activeAuthenticationURL: activeAuthenticationURL,
+        managedAuthenticationURLs: managedAuthenticationURLs
+      )
     try projectStateSynchronizer?.prepareSwitch(
       sourceAuthenticationURL: source.authenticationFileURL,
       targetAuthenticationURL: profile.authenticationFileURL
     )
+    try authenticationInstaller.snapshotActiveStateIfNeeded()
     try authenticationInstaller.installAuthenticationFile(
       from: profile.authenticationFileURL
     )

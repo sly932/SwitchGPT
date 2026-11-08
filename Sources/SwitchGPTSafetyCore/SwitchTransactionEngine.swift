@@ -1,11 +1,16 @@
 import Foundation
 
 public protocol TransactionDesktop: AnyObject {
+  func prepareSwitch() throws
   func isRunning() throws -> Bool
   func currentIdentity() throws -> IdentityID
   func stop() throws
   func install(identity: IdentityID) throws
   func start() throws
+}
+
+extension TransactionDesktop {
+  public func prepareSwitch() throws {}
 }
 
 public final class SwitchTransactionEngine {
@@ -37,6 +42,7 @@ public final class SwitchTransactionEngine {
     guard try desktop.currentIdentity() == source else {
       throw SafetyError.sourceIdentityMismatch
     }
+    try desktop.prepareSwitch()
 
     var record = TransactionRecord(sourceIdentity: source, targetIdentity: target)
     try store.save(record)

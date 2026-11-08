@@ -55,7 +55,7 @@ enum RecoverySupervisorCLI {
       profiles: [
         DesktopCredentialProfile(
           identity: record.sourceIdentity,
-          authenticationFileURL: recoverySnapshotURL
+          authenticationFileURL: activeAuthenticationURL
         )
       ],
       processController: MacOSChatGPTProcessController(allowsTerminationFallback: false),
@@ -69,7 +69,8 @@ enum RecoverySupervisorCLI {
         sharedStateURL: transactionsRoot.deletingLastPathComponent()
           .appendingPathComponent("LocalProjects/shared-state-v1.json"),
         transactionDirectoryURL: transactionDirectory
-      )
+      ),
+      recoveryAuthenticationURL: recoverySnapshotURL
     )
 
     try RecoveryReadinessMarker.create(
