@@ -10,7 +10,8 @@ public protocol LocalProjectStateSynchronizing: AnyObject {
 public protocol LocalProjectAuthorityManaging: LocalProjectStateSynchronizing {
   func initializeActive(authenticationURL: URL) throws
   func captureActive(authenticationURL: URL) throws
-  func synchronizeAndVerifyAll(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws
+  func prepareForExit(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws
+  func synchronizeAfterExit(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws
   func verifyAfterExit(activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]) throws
 }
 
@@ -76,7 +77,32 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     try saveMaster(master)
   }
 
-  public func synchronizeAndVerifyAll(
+  public func prepareForExit(
+    activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]
+  ) throws {
+    let owner = try rendererOwner(authenticationURL: activeAuthenticationURL)
+    let owners = try managedOwners(managedAuthenticationURLs, including: owner)
+    let lock = try acquireLock()
+    defer { lock.release() }
+    guard let (bytes, document) = try readDocument() else { return }
+    try requireActiveOwner(owner, document: document)
+    for managed in owners { _ = try snapshot(owner: managed, document: document) }
+    let before = try readMaster()
+    let current = try snapshot(owner: owner, document: document)
+    let master = try accepting(current, owner: owner, previous: before)
+    try backup(document: document, previous: before, operation: "prepare-for-exit")
+    try requireUnchanged(bytes)
+    try saveMaster(master)
+    let proof = ProjectVerificationProof(
+      activeOwner: owner, managedOwners: owners, revision: master.revision,
+      snapshotDigest: try digest(master.canonical), stage: .captured
+    )
+    try ProjectStateFile.prepareDirectory(transactionDirectoryURL)
+    try writeRecord(proof, to: proofURL)
+  }
+
+  /// The caller must have fully stopped ChatGPT before distribution can begin.
+  public func synchronizeAfterExit(
     activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]
   ) throws {
     let owner = try rendererOwner(authenticationURL: activeAuthenticationURL)
@@ -84,28 +110,31 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     let lock = try acquireLock()
     defer { lock.release() }
     guard let (bytes, original) = try readDocument() else { return }
-    try requireActiveOwner(owner, document: original)
-    // Validate every existing managed partition before creating any missing partition.
+    var proof = try verifyCapturedSource(document: original, owner: owner, expectedOwners: owners)
+    guard let master = try readMaster() else {
+      throw LocalProjectStateSynchronizationError.missingVerification
+    }
+    // Inactive partitions are destinations. Their stale contents never supply authority.
     for managed in owners { _ = try snapshot(owner: managed, document: original) }
-    let before = try readMaster()
-    let current = try snapshot(owner: owner, document: original)
-    let master = try accepting(current, owner: owner, previous: before)
     var document = original
     for managed in owners { try apply(master.canonical, owner: managed, document: &document) }
     try requireEqualSubsets(document: document, owners: owners, canonical: master.canonical)
-    try backup(document: original, previous: before, operation: "synchronize")
+    try backup(document: original, previous: master, operation: "synchronize-after-exit")
     try commit(document: document, originalBytes: bytes, master: master)
     guard let (_, written) = try readDocument() else {
       throw LocalProjectStateSynchronizationError.stateMismatch
     }
-    try requireActiveOwner(owner, document: written)
+    _ = try verifyCapturedSource(document: written, owner: owner, expectedOwners: owners)
     try requireEqualSubsets(document: written, owners: owners, canonical: master.canonical)
-    let proof = ProjectVerificationProof(
-      activeOwner: owner, managedOwners: owners, revision: master.revision,
-      snapshotDigest: try digest(master.canonical)
-    )
-    try ProjectStateFile.prepareDirectory(transactionDirectoryURL)
+    proof.stage = .distributed
     try writeRecord(proof, to: proofURL)
+  }
+
+  @available(*, deprecated, message: "Use prepareForExit; distribution belongs in synchronizeAfterExit after ChatGPT stops.")
+  public func synchronizeAndVerifyAll(
+    activeAuthenticationURL: URL, managedAuthenticationURLs: [URL]
+  ) throws {
+    try prepareForExit(activeAuthenticationURL: activeAuthenticationURL, managedAuthenticationURLs: managedAuthenticationURLs)
   }
 
   public func verifyAfterExit(
@@ -169,12 +198,25 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
         master = try accepting(snapshot(owner: active, document: original), owner: active, previous: master)
       }
     } else {
-      // A failed exit check never authorized the target. Restore the trusted pre-quit master,
-      // retaining the unexpected exit snapshot in the durable recovery backup for inspection.
+      // A failed exit check never authorized the target. A changed source may contain new
+      // edits or stale shutdown data. Preserve both versions and require review of that state.
       guard master.activeOwner == source, master.revision == proof!.revision,
         try digest(master.canonical) == proof!.snapshotDigest
       else { throw LocalProjectStateSynchronizationError.stateMismatch }
       try requireSourceOwner(source, document: original)
+      let finalSource = try snapshot(owner: source, document: original)
+      if finalSource != master.canonical {
+        try backup(document: original, previous: before, operation: "source-mismatch")
+        try requireUnchanged(bytes)
+        master.quarantinedOwner = source
+        master.quarantineRevision = master.revision
+        master.rejectedSnapshotDigest = try digest(finalSource)
+        master.approvedNextOwner = nil
+        master.approvalRevision = nil
+        master.approvalSnapshotDigest = nil
+        try saveMaster(master)
+        return
+      }
     }
     master.approvedNextOwner = nil
     master.approvalRevision = nil
@@ -227,6 +269,14 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     guard var master = previous else {
       return ProjectAuthorityState(revision: 1, activeOwner: owner, canonical: current)
     }
+    if master.quarantinedOwner == owner {
+      guard master.canonical == current else {
+        throw LocalProjectStateSynchronizationError.stateMismatch
+      }
+      master.quarantinedOwner = nil
+      master.quarantineRevision = nil
+      master.rejectedSnapshotDigest = nil
+    }
     let canonicalDigest = try digest(master.canonical)
     let approvedHandoff = master.approvedNextOwner == owner
       && master.approvalRevision == master.revision
@@ -264,8 +314,7 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     }
   }
 
-  @discardableResult
-  private func verify(
+  private func verifyCapturedSource(
     document: [String: ProjectJSON], owner: String, expectedOwners: [String]?
   ) throws -> ProjectVerificationProof {
     guard let proof: ProjectVerificationProof = try readRecord(proofURL) else {
@@ -276,6 +325,23 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
       master.revision == proof.revision, try digest(master.canonical) == proof.snapshotDigest
     else { throw LocalProjectStateSynchronizationError.stateMismatch }
     try requireSourceOwner(owner, document: document)
+    guard try snapshot(owner: owner, document: document) == master.canonical else {
+      throw LocalProjectStateSynchronizationError.stateMismatch
+    }
+    return proof
+  }
+
+  @discardableResult
+  private func verify(
+    document: [String: ProjectJSON], owner: String, expectedOwners: [String]?
+  ) throws -> ProjectVerificationProof {
+    let proof = try verifyCapturedSource(document: document, owner: owner, expectedOwners: expectedOwners)
+    guard proof.stage == .distributed else {
+      throw LocalProjectStateSynchronizationError.missingVerification
+    }
+    guard let master = try readMaster() else {
+      throw LocalProjectStateSynchronizationError.missingVerification
+    }
     try requireEqualSubsets(document: document, owners: proof.managedOwners, canonical: master.canonical)
     return proof
   }
@@ -617,6 +683,9 @@ private struct ProjectAuthorityState: Codable, Equatable, ProjectStateVersioned 
   var approvedNextOwner: String?
   var approvalRevision: Int?
   var approvalSnapshotDigest: String?
+  var quarantinedOwner: String?
+  var quarantineRevision: Int?
+  var rejectedSnapshotDigest: String?
 
   func validate() throws {
     guard revision > 0, !activeOwner.isEmpty else { throw LocalProjectStateSynchronizationError.invalidState }
@@ -625,8 +694,18 @@ private struct ProjectAuthorityState: Codable, Equatable, ProjectStateVersioned 
         throw LocalProjectStateSynchronizationError.invalidState
       }
     }
+    if quarantinedOwner != nil {
+      guard let quarantinedAt = quarantineRevision, quarantinedAt > 0, quarantinedAt <= revision,
+        rejectedSnapshotDigest?.isEmpty == false
+      else { throw LocalProjectStateSynchronizationError.invalidState }
+    }
     try canonical.validate()
   }
+}
+
+private enum ProjectVerificationStage: String, Codable {
+  case captured
+  case distributed
 }
 
 private struct ProjectVerificationProof: Codable, ProjectStateVersioned {
@@ -635,6 +714,7 @@ private struct ProjectVerificationProof: Codable, ProjectStateVersioned {
   let managedOwners: [String]
   let revision: Int
   let snapshotDigest: String
+  var stage: ProjectVerificationStage
 
   func validate() throws {
     guard revision > 0, !activeOwner.isEmpty, !snapshotDigest.isEmpty,
