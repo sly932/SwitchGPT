@@ -471,27 +471,62 @@ final class LocalProjectStateTests: XCTestCase {
 
   }
 
-  func testAllSixSnapshotsAreVerifiedAndPostExitMismatchRefusesSwitch() throws {
+  func testCachedTwoRegionQuitSnapshotIsDistributedAfterSourceVerification() throws {
     let fixture = try makeFixture(sourceProjects: [project("current")], targetProjects: [project("obsolete")])
-    try fixture.initializeActive(.a)
+    var cachedState = try fixture.readState()
+    var registry = cachedState["electron-account-renderer-state-v1"] as! [String: Any]
+    let inactive = registry["inactive"] as! [String: Any]
+    registry["inactive"] = [fixture.account(.b).owner: inactive[fixture.account(.b).owner]!]
+    cachedState["electron-account-renderer-state-v1"] = registry
+    try fixture.writeState(cachedState)
+    let beforeQuit = try Data(contentsOf: fixture.globalStateURL)
     let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
-    try fixture.verifyAll(.a, using: service)
+
+    try service.prepareForExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), beforeQuit)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.globalStateURL.appendingPathExtension("bak").path))
+    // ChatGPT saves its original two-region cache while exiting. Source A is unchanged.
+    try fixture.writeState(cachedState)
+    try service.synchronizeAfterExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
     let expected = try fixture.globals(for: .a)
     let expectedAtoms = try XCTUnwrap(try fixture.snapshot(for: .a)["atoms"] as? [String: Any])
     for name in LocalProjectAccount.allCases {
+      XCTAssertEqual(try fixture.projectIDs(for: name), ["current"])
       assertJSONEqual(try fixture.globals(for: name), expected)
       let atoms = try XCTUnwrap(try fixture.snapshot(for: name)["atoms"] as? [String: Any])
       for key in localProjectAtomKeys { assertJSONEqual(atoms[key], expectedAtoms[key]) }
     }
-    try fixture.editInactiveGlobals(.f) { globals in
-      globals["local-projects"] = ["stale-after-exit": self.project("stale-after-exit")]
-    }
-    try fixture.editActiveGlobals { globals in
-      globals["local-projects"] = [:] as [String: Any]
-    }
-    let changedState = try Data(contentsOf: fixture.globalStateURL)
+    try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    )
+  }
 
-    XCTAssertThrowsError(try service.verifyAfterExit(
+  func testChangedSourceAfterExitIsRejectedAndRecoveryPreservesLatestEdit() throws {
+    let fixture = try makeFixture(sourceProjects: [project("current")], targetProjects: [project("obsolete")])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    try service.prepareForExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    let masterBeforeExit = try fixture.readMaster()
+    let sourceBeforeExit = try fixture.readState()
+    try fixture.editActiveGlobals { globals in
+      globals["local-projects"] = [
+        "current": self.project("current", name: "Changed while quitting"),
+        "fresh": self.project("fresh"),
+      ]
+    }
+    let latestSource = try Data(contentsOf: fixture.globalStateURL)
+
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
       activeAuthenticationURL: fixture.account(.a).authenticationURL,
       managedAuthenticationURLs: fixture.managedAuthenticationURLs
     )) { error in
@@ -501,18 +536,31 @@ final class LocalProjectStateTests: XCTestCase {
       sourceAuthenticationURL: fixture.account(.a).authenticationURL,
       targetAuthenticationURL: fixture.account(.b).authenticationURL
     ))
-    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), changedState)
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), latestSource)
+    assertJSONEqual(try fixture.readMaster()["canonical"], masterBeforeExit["canonical"])
+    XCTAssertEqual(try fixture.readMaster()["revision"] as? Int, masterBeforeExit["revision"] as? Int)
 
     try service.recoverSource(sourceAuthenticationURL: fixture.account(.a).authenticationURL)
-    for name in LocalProjectAccount.allCases {
-      assertJSONEqual(try fixture.globals(for: name), expected)
+
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), latestSource)
+    assertJSONEqual(try fixture.readMaster()["canonical"], masterBeforeExit["canonical"])
+    XCTAssertEqual(try fixture.readMaster()["revision"] as? Int, masterBeforeExit["revision"] as? Int)
+    XCTAssertEqual(try fixture.projectIDs(for: .a), ["current", "fresh"])
+    XCTAssertEqual(try fixture.project("current", for: .a)["name"] as? String, "Changed while quitting")
+    XCTAssertThrowsError(try fixture.capture(.a)) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .stateMismatch)
     }
-    XCTAssertEqual(fixture.owner(in: try fixture.readState()), fixture.account(.a).owner)
-    let recoveredCanonical = try Data(contentsOf: fixture.sharedStateURL)
-    try fixture.selectOwner(.b)
-    try fixture.editProject("current") { project in project["name"] = "Unapproved target edit" }
-    XCTAssertThrowsError(try fixture.capture(.b))
-    XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), recoveredCanonical)
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), latestSource)
+    assertJSONEqual(try fixture.readMaster()["canonical"], masterBeforeExit["canonical"])
+    XCTAssertEqual(try fixture.readMaster()["revision"] as? Int, masterBeforeExit["revision"] as? Int)
+
+    // Reconciliation is explicit. The rejected quit snapshot is never adopted by retrying capture.
+    try fixture.writeState(sourceBeforeExit)
+    try fixture.capture(.a)
+    try fixture.editProject("current") { project in project["name"] = "Edit after reconciliation" }
+    try fixture.capture(.a)
+    let masterAfterNewEdit = try fixture.readMaster()
+    XCTAssertTrue((masterAfterNewEdit["revision"] as? Int ?? 0) > (masterBeforeExit["revision"] as? Int ?? 0))
   }
 
   func testVerifiedHandoffAcceptsFreshTargetChangesBeforeFirstMonitorTick() throws {
@@ -563,9 +611,33 @@ final class LocalProjectStateTests: XCTestCase {
     )) { error in
       XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .missingVerification)
     }
+    try service.prepareForExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), original)
+    XCTAssertEqual(try fixture.projectIDs(for: .b), [])
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: fixture.account(.a).authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .missingVerification)
+    }
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: Array(fixture.managedAuthenticationURLs.dropLast())
+    ))
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
+      activeAuthenticationURL: fixture.account(.b).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), original)
     try fixture.writePrivate(Data("{invalid-profile".utf8), to: fixture.account(.f).authenticationURL)
 
-    XCTAssertThrowsError(try fixture.verifyAll(.a, using: service))
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
 
     XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), original)
     XCTAssertThrowsError(try service.prepareSwitch(
@@ -579,12 +651,15 @@ final class LocalProjectStateTests: XCTestCase {
     try fixture.initializeActive(.a)
     let transaction = fixture.nextTransactionURL()
     let service = fixture.synchronizer(transaction: transaction)
-    try fixture.verifyAll(.a, using: service)
+    try service.prepareForExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
     try fixture.editProject("source") { project in project["name"] = "Changed after verification" }
     try fixture.capture(.a)
     let canonicalAfterEdit = try Data(contentsOf: fixture.sharedStateURL)
 
-    XCTAssertThrowsError(try service.verifyAfterExit(
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
       activeAuthenticationURL: fixture.account(.a).authenticationURL,
       managedAuthenticationURLs: fixture.managedAuthenticationURLs
     ))
@@ -602,8 +677,10 @@ final class LocalProjectStateTests: XCTestCase {
     )) { error in
       XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .invalidState)
     }
+    try fixture.editInactiveGlobals(.b) { globals in
+      globals["local-projects"] = ["source": self.project("source", name: "Stale owner edit")]
+    }
     try fixture.selectOwner(.b)
-    try fixture.editProject("source") { project in project["name"] = "Stale owner edit" }
     XCTAssertThrowsError(try fixture.capture(.b))
     XCTAssertEqual(try Data(contentsOf: fixture.sharedStateURL), canonicalAfterEdit)
   }
@@ -632,10 +709,13 @@ final class LocalProjectStateTests: XCTestCase {
     let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
     try fixture.initializeActive(.a)
     let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
-    try fixture.verifyAll(.a, using: service)
+    try service.prepareForExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
     try fixture.selectOwner(nil)
 
-    try service.verifyAfterExit(
+    try service.synchronizeAfterExit(
       activeAuthenticationURL: fixture.account(.a).authenticationURL,
       managedAuthenticationURLs: fixture.managedAuthenticationURLs
     )
@@ -815,7 +895,11 @@ private struct LocalProjectFixture {
   }
 
   func verifyAll(_ source: LocalProjectAccount, using synchronizer: LocalProjectStateSynchronizer) throws {
-    try synchronizer.synchronizeAndVerifyAll(
+    try synchronizer.prepareForExit(
+      activeAuthenticationURL: account(source).authenticationURL,
+      managedAuthenticationURLs: managedAuthenticationURLs
+    )
+    try synchronizer.synchronizeAfterExit(
       activeAuthenticationURL: account(source).authenticationURL,
       managedAuthenticationURLs: managedAuthenticationURLs
     )
@@ -850,6 +934,10 @@ private struct LocalProjectFixture {
 
   func readState() throws -> [String: Any] {
     try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: globalStateURL)) as? [String: Any])
+  }
+
+  func readMaster() throws -> [String: Any] {
+    try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: sharedStateURL)) as? [String: Any])
   }
 
   func writeState(_ state: [String: Any]) throws {

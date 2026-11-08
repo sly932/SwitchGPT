@@ -49,7 +49,7 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
 
   public func prepareSwitch() throws {
     try (projectStateSynchronizer as? LocalProjectAuthorityManaging)?
-      .synchronizeAndVerifyAll(
+      .prepareForExit(
         activeAuthenticationURL: activeAuthenticationURL,
         managedAuthenticationURLs: managedAuthenticationURLs
       )
@@ -98,15 +98,26 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     guard let source = profilesByIdentity[sourceIdentity] else {
       throw DesktopIntegrationError.missingProfile
     }
-    try (projectStateSynchronizer as? LocalProjectAuthorityManaging)?
-      .verifyAfterExit(
+    if let authority = projectStateSynchronizer as? LocalProjectAuthorityManaging {
+      try authority.synchronizeAfterExit(
         activeAuthenticationURL: activeAuthenticationURL,
         managedAuthenticationURLs: managedAuthenticationURLs
       )
+      try authority.verifyAfterExit(
+        activeAuthenticationURL: activeAuthenticationURL,
+        managedAuthenticationURLs: managedAuthenticationURLs
+      )
+    }
     try projectStateSynchronizer?.prepareSwitch(
       sourceAuthenticationURL: source.authenticationFileURL,
       targetAuthenticationURL: profile.authenticationFileURL
     )
+    if projectStateSynchronizer != nil, try processController.isRunning() {
+      throw DesktopIntegrationError.desktopDidNotTerminate
+    }
+    guard try identityReader.currentIdentity() == sourceIdentity else {
+      throw DesktopIntegrationError.identityMismatch
+    }
     try authenticationInstaller.snapshotActiveStateIfNeeded()
     try authenticationInstaller.installAuthenticationFile(
       from: profile.authenticationFileURL
