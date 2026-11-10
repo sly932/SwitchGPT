@@ -7,7 +7,8 @@
 
 ## 分支与 worktree 流程
 
-- `main` 跟踪公开仓库的 `origin/main`，用作上游基线。本项目个人修改的集成分支是 `shenliyuan`，固定工作区为 `~/projects/_worktrees/SwitchGPT/main-shenliyuan/`。worktree 名称是 `main-shenliyuan`，其中检出的 Git 分支名是 `shenliyuan`，两者不要混淆。
+- `shenliyuan` 是本项目默认主分支，承担通常 `main` 分支的职责。之后提到本项目的主分支、默认开发基线或集成目标时，均指 `shenliyuan`，实际 Git 分支名保持为 `shenliyuan`。固定工作区为 `~/projects/_worktrees/SwitchGPT/main-shenliyuan/`；worktree 名称是 `main-shenliyuan`，其中检出的 Git 分支名是 `shenliyuan`，两者不要混淆。
+- 本项目的 `shenliyuan` 跟踪个人远端 `fork/shenliyuan`（`github.com/sly932/SwitchGPT`）。原 `main` 继续跟踪公开仓库的 `origin/main`，仅作为上游参考。
 - 之后每项独立修改都从最新的本地 `shenliyuan` 创建任务分支和单独的 worktree，放在 `~/projects/_worktrees/SwitchGPT/<任务名>/`。在任务 worktree 中开发、验证，再把任务分支合并到 `shenliyuan`；不要直接在 `main` 或 `main-shenliyuan` 工作区开发普通功能。
 - 合并前检查来源分支、目标分支、未提交改动和测试结果。合并只更新本地 `shenliyuan`；推送远端、合并到 `main`、发布版本都需要各自明确的请求。
 - 原有 `~/projects/SwitchGPT` 工作区中的未提交改动属于原工作区，不会自动进入新 worktree。处理这些改动前先确认归属与目标，不能擅自丢弃、搬移或合并。
