@@ -176,6 +176,11 @@ public struct AccountUsage: Codable, Equatable, Hashable, Sendable {
   public let tokenActivity: AccountTokenActivity?
   public let tokenActivityWasLoaded: Bool
 
+  var hasUnavailableDetails: Bool {
+    !tokenActivityWasLoaded
+      || (resetCredits.map { $0.availableCount > 0 && $0.credits == nil } ?? false)
+  }
+
   public init(
     weekly: UsageWindow,
     fiveHour: UsageWindow? = nil,
