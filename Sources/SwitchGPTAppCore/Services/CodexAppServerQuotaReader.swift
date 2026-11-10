@@ -11,7 +11,7 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
 
   public init(
     codexBinaryURL: URL? = nil,
-    timeout: Duration = .seconds(20),
+    timeout: Duration = .seconds(60),
     includeTokenActivity: Bool = true,
     desktopApplicationURL: URL = BundledCodexExecutable.defaultApplicationURL
   ) {
@@ -38,7 +38,10 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
       of: (AccountID, Result<AccountQuotaSnapshot, QuotaReadingError>).self,
       returning: Result<[AccountID: AccountQuotaSnapshot], QuotaReadingError>.self
     ) { group in
-      for (accountID, path) in realAccounts {
+      // Each account starts its own app-server and several network reads. Bound the
+      // fan-out so adding accounts does not overwhelm the local server or service.
+      var pendingAccounts = realAccounts.makeIterator()
+      func enqueue(_ accountID: AccountID, _ path: String) {
         group.addTask {
           do {
             let snapshot = try await Self.readSnapshot(
@@ -73,6 +76,12 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
         }
       }
 
+      for _ in 0..<min(4, realAccounts.count) {
+        if let (accountID, path) = pendingAccounts.next() {
+          enqueue(accountID, path)
+        }
+      }
+
       var result: [AccountID: AccountQuotaSnapshot] = [:]
       var firstFailure: QuotaReadingError?
       for await (accountID, attempt) in group {
@@ -83,6 +92,9 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
           if firstFailure == nil {
             firstFailure = error
           }
+        }
+        if let (nextAccountID, path) = pendingAccounts.next() {
+          enqueue(nextAccountID, path)
         }
       }
       if result.isEmpty, let firstFailure {
@@ -261,6 +273,7 @@ private struct CodexAppServerClient: Sendable {
       throw QuotaReadingError.processLaunchFailed
     }
 
+    let deadline = ContinuousClock.now.advanced(by: timeout)
     let timeoutItem = DispatchWorkItem {
       if process.isRunning {
         process.terminate()
@@ -310,25 +323,35 @@ private struct CodexAppServerClient: Sendable {
       nextID: &nextID
     )
     let accountMetadata = try CodexAccountDecoder.decode(from: accountData)
-    let quotaUsage = try CodexRateLimitDecoder.decodeUsage(from: rateLimitsData)
-    let planName = try CodexRateLimitDecoder.decodePlanName(
+    var quotaUsage = try CodexRateLimitDecoder.decodeUsage(from: rateLimitsData)
+    var planName = try CodexRateLimitDecoder.decodePlanName(
       from: rateLimitsData, fallback: accountMetadata.planName
     )
     // Token activity is optional on older app-server builds and can be unavailable
     // independently of rate limits. Keep the valid quota snapshot in that case.
     let tokenActivity: AccountTokenActivity?
     if includeTokenActivity {
-      tokenActivity = try? CodexTokenActivityDecoder.decode(
-        from: request(
-          method: "account/usage/read",
-          params: NSNull(),
-          input: input,
-          output: output,
-          nextID: &nextID
-        )
-      )
+      tokenActivity = readTokenActivity(
+        input: input, output: output, nextID: &nextID, deadline: deadline)
     } else {
       tokenActivity = nil
+    }
+
+    // A count-only response means the separate detail lookup did not return rows.
+    // Retry it once after token activity, within the original account deadline.
+    // Never replace a valid snapshot with an error or reuse saved expiration data.
+    if let resetCredits = quotaUsage.resetCredits,
+      resetCredits.availableCount > 0, resetCredits.credits == nil,
+      ContinuousClock.now < deadline,
+      let retriedData = try? request(
+        method: "account/rateLimits/read", params: NSNull(),
+        input: input, output: output, nextID: &nextID),
+      let retriedUsage = try? CodexRateLimitDecoder.decodeUsage(from: retriedData),
+      retriedUsage.resetCredits != nil
+    {
+      quotaUsage = retriedUsage
+      planName = (try? CodexRateLimitDecoder.decodePlanName(
+        from: retriedData, fallback: planName)) ?? planName
     }
     return ReadOnlyQuotaSnapshot(
       identityHash: accountMetadata.identityHash,
@@ -336,6 +359,27 @@ private struct CodexAppServerClient: Sendable {
       planName: planName,
       usage: tokenActivity.map { quotaUsage.withTokenActivity($0) } ?? quotaUsage
     )
+  }
+
+  private func readTokenActivity(
+    input: Pipe, output: Pipe, nextID: inout Int, deadline: ContinuousClock.Instant
+  ) -> AccountTokenActivity? {
+    for attempt in 0..<2 {
+      do {
+        return try CodexTokenActivityDecoder.decode(from: request(
+          method: "account/usage/read", params: NSNull(),
+          input: input, output: output, nextID: &nextID))
+      } catch let error as AppServerResponseError
+        where attempt == 0 && error.isRetryable && ContinuousClock.now < deadline
+      {
+        continue
+      } catch {
+        // Do not log upstream messages, which can contain account or credential data.
+        NSLog("[SwitchGPT/quota] token activity unavailable after read-only query")
+        return nil
+      }
+    }
+    return nil
   }
 
   private func sendNotification(method: String, input: Pipe) throws {
@@ -381,8 +425,8 @@ private struct CodexAppServerClient: Sendable {
           continue
         }
 
-        if response["error"] != nil {
-          throw QuotaReadingError.invalidProtocolResponse
+        if let error = response["error"] as? [String: Any] {
+          throw AppServerResponseError(code: (error["code"] as? NSNumber)?.intValue)
         }
         guard let result = response["result"] else {
           throw QuotaReadingError.invalidProtocolResponse
@@ -390,6 +434,16 @@ private struct CodexAppServerClient: Sendable {
         return try JSONSerialization.data(withJSONObject: result)
       }
     }
+  }
+}
+
+private struct AppServerResponseError: Error {
+  let code: Int?
+
+  var isRetryable: Bool {
+    // Authentication, invalid parameters and unsupported methods require action
+    // outside this read. Only retry potentially transient server failures.
+    ![-32600, -32601, -32602].contains(code ?? 0)
   }
 }
 

@@ -189,6 +189,7 @@
 "Removed account: " = "已移除账号：";
 "Could not refresh usage" = "无法刷新用量";
 "Usage refreshed" = "用量已刷新";
+"Quota updated; some token activity or reset-credit details are unavailable." = "额度已更新，部分 Token 活动或重置卡到期详情暂时无法读取。";
 "Updated %d of %d accounts. %d kept previous usage." = "已更新 %d/%d 个账号；%d 个账号继续显示上次用量。";
 "Could not refresh the selected account" = "无法刷新所选账号";
 "Selected account refreshed" = "所选账号已刷新";

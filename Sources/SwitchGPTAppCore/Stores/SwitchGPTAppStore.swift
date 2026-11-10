@@ -536,6 +536,10 @@ public final class SwitchGPTAppStore {
     }
     let failedAccountIDs = Set(accounts.map(\.id)).subtracting(snapshotsByAccount.keys)
     quotaRefreshFailedAccountIDs = failedAccountIDs
+    let hasUnavailableDetails = accounts.contains { account in
+      guard case .codexHome = account.source else { return false }
+      return snapshotsByAccount[account.id]?.usage.hasUnavailableDetails == true
+    }
 
     guard !snapshotsByAccount.isEmpty else {
       if reportsActivity {
@@ -566,12 +570,15 @@ public final class SwitchGPTAppStore {
       }
       return updated
     }
-    if failedAccountIDs.isEmpty {
+    if failedAccountIDs.isEmpty && !hasUnavailableDetails {
       lastRefreshedAt = Date()
     }
     if persistState() {
       if reportsActivity {
-        if failedAccountIDs.isEmpty {
+        if failedAccountIDs.isEmpty && hasUnavailableDetails {
+          activity = .partial(
+            message: "Quota updated; some token activity or reset-credit details are unavailable.")
+        } else if failedAccountIDs.isEmpty {
           activity = .success(message: "Usage refreshed")
         } else {
           let failedCount = failedAccountIDs.count
@@ -608,6 +615,12 @@ public final class SwitchGPTAppStore {
       }
 
       let previous = accounts[index]
+      let hasUnavailableDetails: Bool
+      if case .codexHome = previous.source {
+        hasUnavailableDetails = snapshot.usage.hasUnavailableDetails
+      } else {
+        hasUnavailableDetails = false
+      }
       accounts[index] = AccountRecord(
         id: previous.id,
         displayName: previous.displayName,
@@ -621,10 +634,14 @@ public final class SwitchGPTAppStore {
         identityHash: previous.identityHash,
         usageRefreshedAt: Date()
       )
-      lastRefreshedAt = Date()
+      if !hasUnavailableDetails {
+        lastRefreshedAt = Date()
+      }
       if persistState() {
         quotaRefreshFailedAccountIDs.remove(accountID)
-        activity = .success(message: "Selected account refreshed")
+        activity = hasUnavailableDetails
+          ? .partial(message: "Quota updated; some token activity or reset-credit details are unavailable.")
+          : .success(message: "Selected account refreshed")
         return true
       }
       return false
