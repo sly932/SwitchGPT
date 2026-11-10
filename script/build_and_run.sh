@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-mode="${1:-run}"
+mode="${1:-auto}"
 app_name="switchgpt-sly"
 bundle_id="ai.shenliyuan.switchgpt-sly"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,10 +24,19 @@ cd "$repository_root"
 mkdir -p "$dev_bundle_directory"
 touch "$dev_bundle_directory/.metadata_never_index"
 
-swift build -c debug --product SwitchGPTApp
-swift build -c debug --product SwitchGPTRecoverySupervisor
-swift build -c debug --product switchgpt
-build_bin_dir="$(swift build -c debug --show-bin-path)"
+swift_build_args=(-c debug)
+developer_directory="$(xcode-select -p)"
+if [[ -z "${SDKROOT:-}" && "$developer_directory" == "/Library/Developer/CommandLineTools" \
+  && -d "$developer_directory/SDKs/MacOSX26.sdk" \
+  && ! -f "$developer_directory/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib" \
+  && "$(xcrun --show-sdk-version)" == 27.* ]]; then
+  # The macOS 27 SDK requires a SwiftUI macro plugin absent from these Command Line Tools.
+  swift_build_args+=(--sdk "$developer_directory/SDKs/MacOSX26.sdk")
+fi
+swift build "${swift_build_args[@]}" --product SwitchGPTApp
+swift build "${swift_build_args[@]}" --product SwitchGPTRecoverySupervisor
+swift build "${swift_build_args[@]}" --product switchgpt
+build_bin_dir="$(swift build "${swift_build_args[@]}" --show-bin-path)"
 build_binary="$build_bin_dir/SwitchGPTApp"
 build_recovery_helper="$build_bin_dir/SwitchGPTRecoverySupervisor"
 
@@ -83,9 +92,10 @@ open_app() {
 }
 
 verify_process() {
+  local executable="$1"
   for _ in {1..30}; do
-    if pgrep -x "$app_name" >/dev/null 2>&1; then
-      echo "Running: $app_name"
+    if ps -axo comm= | awk -v executable="$executable" '$0 == executable { found = 1 } END { exit !found }'; then
+      echo "Running: $executable"
       return 0
     fi
     sleep 0.2
@@ -95,21 +105,47 @@ verify_process() {
   return 1
 }
 
-reinstall_app() {
-  local user_app_directory="$HOME/Applications"
-  local installed_app="$user_app_directory/$app_name.app"
-  local staged_app="$user_app_directory/.$app_name.install-$(uuidgen).app"
-  local backup_app="$user_app_directory/.$app_name.backup-$(uuidgen).app"
+verify_install() {
+  local installed_app="$1"
+  codesign --verify --deep --strict "$installed_app" || return 1
+  if [[ "$2" != install ]]; then
+    /usr/bin/open -n "$installed_app" && verify_process "$installed_app/Contents/MacOS/$app_name"
+  fi
+}
+
+install_app() (
+  local operation="$1"
+  local install_directory="/Applications"
+  local installed_app="$install_directory/$app_name.app"
+  local staged_app="$install_directory/.$app_name.install-$(uuidgen).app"
+  local backup_app="$install_directory/.$app_name.backup-$(uuidgen).app"
+  local install_lock="$install_directory/.$app_name.install.lock"
+  local replacing=false
   local installed_identifier
 
-  if [[ ! -d "$installed_app" || -L "$installed_app" ]]; then
-    echo "Expected installed app is missing or unsafe: $installed_app" >&2
+  if ! mkdir "$install_lock"; then
+    echo "Could not lock $installed_app for installation. Check access to $install_directory or wait for the other install." >&2
     return 1
   fi
-  installed_identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
-    "$installed_app/Contents/Info.plist" 2>/dev/null) || return 1
-  if [[ "$installed_identifier" != "$bundle_id" ]]; then
-    echo "Installed app has a different bundle identifier; leaving it untouched" >&2
+  trap 'rmdir "$install_lock"' EXIT
+
+  if [[ -e "$installed_app" || -L "$installed_app" ]]; then
+    if [[ "$operation" == install || ! -d "$installed_app" || -L "$installed_app" ]]; then
+      echo "Cannot replace the existing path: $installed_app" >&2
+      return 1
+    fi
+    installed_identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+      "$installed_app/Contents/Info.plist" 2>/dev/null) || return 1
+    if [[ "$installed_identifier" != "$bundle_id" ]]; then
+      echo "Installed app has a different bundle identifier; leaving it untouched" >&2
+      return 1
+    fi
+    replacing=true
+  elif [[ -e "$HOME/Applications/$app_name.app" || -L "$HOME/Applications/$app_name.app" ]]; then
+    echo "Move the existing app from $HOME/Applications to $install_directory before running this command again." >&2
+    return 1
+  elif [[ "$operation" == reinstall ]]; then
+    echo "Expected installed app is missing: $installed_app" >&2
     return 1
   fi
 
@@ -124,50 +160,62 @@ reinstall_app() {
     return 1
   fi
 
-  # Only stop this exact app process. ChatGPT is never part of this operation.
-  pkill -x "$app_name" >/dev/null 2>&1 || true
-  for _ in {1..30}; do
-    if ! pgrep -x "$app_name" >/dev/null 2>&1; then break; fi
-    sleep 0.1
-  done
-  if pgrep -x "$app_name" >/dev/null 2>&1; then
-    rm -rf "$staged_app"
-    echo "App is still running; leaving installed bundle untouched" >&2
-    return 1
+  if [[ "$operation" != install ]]; then
+    pkill -x "$app_name" >/dev/null 2>&1 || true
+    for _ in {1..30}; do
+      if ! pgrep -x "$app_name" >/dev/null 2>&1; then break; fi
+      sleep 0.1
+    done
+    if pgrep -x "$app_name" >/dev/null 2>&1; then
+      rm -rf "$staged_app"
+      echo "App is still running; leaving installed bundle untouched" >&2
+      return 1
+    fi
   fi
 
-  if ! mv "$installed_app" "$backup_app"; then
+  if "$replacing" && ! mv "$installed_app" "$backup_app"; then
     rm -rf "$staged_app"
+    /usr/bin/open -n "$installed_app" || true
     return 1
   fi
   if ! mv "$staged_app" "$installed_app"; then
-    mv "$backup_app" "$installed_app"
+    if "$replacing"; then
+      mv "$backup_app" "$installed_app"
+      /usr/bin/open -n "$installed_app" || true
+    fi
     rm -rf "$staged_app"
     return 1
   fi
 
-  if ! codesign --verify --deep --strict "$installed_app" \
-    || ! /usr/bin/open -n "$installed_app" \
-    || ! verify_process; then
-    pkill -x "$app_name" >/dev/null 2>&1 || true
+  if ! verify_install "$installed_app" "$operation"; then
+    if [[ "$operation" != install ]]; then
+      pkill -x "$app_name" >/dev/null 2>&1 || true
+    fi
     mv "$installed_app" "$staged_app"
-    mv "$backup_app" "$installed_app"
-    /usr/bin/open -n "$installed_app" || true
+    if "$replacing"; then
+      mv "$backup_app" "$installed_app"
+      /usr/bin/open -n "$installed_app" || true
+    fi
     rm -rf "$staged_app"
-    echo "New app failed verification; restored previous installation" >&2
+    echo "New app failed verification; installation rolled back" >&2
     return 1
   fi
 
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "$installed_app" || echo "LaunchServices registration will retry on next launch" >&2
-  local trash_backup="$HOME/.Trash/$app_name-before-$(date +%Y%m%d-%H%M%S)-$(uuidgen).app"
-  if ! mv "$backup_app" "$trash_backup"; then
-    echo "Previous bundle retained at: $backup_app" >&2
+  if "$replacing"; then
+    local trash_backup="$HOME/.Trash/$app_name-before-$(date +%Y%m%d-%H%M%S)-$(uuidgen).app"
+    if mv "$backup_app" "$trash_backup"; then
+      backup_app="$trash_backup"
+    fi
+    echo "Previous bundle retained at: $backup_app"
+    echo "Reinstalled: $installed_app"
+  else
+    echo "Installed: $installed_app"
   fi
-  echo "Reinstalled: $installed_app"
   echo "Source revision: $(/usr/libexec/PlistBuddy -c 'Print :SwitchGPTSourceRevision' \
     "$installed_app/Contents/Info.plist")"
-}
+)
 
 case "$mode" in
   run)
@@ -186,21 +234,16 @@ case "$mode" in
     ;;
   --verify|verify)
     open_app
-    verify_process
+    verify_process "$app_binary"
+    ;;
+  auto)
+    install_app auto
     ;;
   --install|install)
-    user_app_directory="$HOME/Applications"
-    mkdir -p "$user_app_directory"
-    installed_app="$user_app_directory/$app_name.app"
-    if [[ -e "$installed_app" ]]; then
-      echo "Existing app left untouched: $installed_app" >&2
-      exit 1
-    fi
-    /usr/bin/ditto "$app_bundle" "$installed_app"
-    echo "Installed: $installed_app"
+    install_app install
     ;;
   --reinstall|reinstall)
-    reinstall_app
+    install_app reinstall
     ;;
   *)
     echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--install|--reinstall]" >&2

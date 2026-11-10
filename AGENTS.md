@@ -15,6 +15,6 @@
 
 ## 功能改动后的本机安装
 
-- 每次功能修改在任务 worktree 完成验证并合并到本地 `main` 后，都要从 `~/projects/_worktrees/SwitchGPT/main-shenliyuan/` 重新编译，并更新安装 `~/Applications/switchgpt-sly.app`。只运行 `swift build`、打开 `.build/dev-app` 中的临时包，或只提交代码，都不算完成本机交付。
-- 已安装时运行 `./script/build_and_run.sh --reinstall`；首次安装才运行 `--install`。重新安装必须先构建和验证新包，再停止旧的 `switchgpt-sly` 进程、替换应用，并保留可恢复的旧包。不能删除或覆盖 `~/Library/Application Support/SwitchGPT-sly` 中的账号数据；安装失败时恢复原应用。
-- 安装后从 `~/Applications/switchgpt-sly.app` 打开，核对实际运行的包、已添加账号和本次修改的可见行为，并报告构建、测试、安装及验收结果。若因环境限制无法完成安装或验收，要明确说明，不能声称功能已可在已安装应用中使用。
+- 每次功能修改在任务 worktree 完成验证并合并到本地 `main` 后，都要从 `~/projects/_worktrees/SwitchGPT/main-shenliyuan/` 运行 `./script/build_and_run.sh`。脚本会构建、安装或更新 `/Applications/switchgpt-sly.app`，并启动它。只运行 `swift build`、打开 `.build/dev-app` 中的临时包，或只提交代码，都不算完成本机交付。
+- 更新时必须先构建和验证新包，再停止旧的 `switchgpt-sly` 进程、替换应用，并保留可恢复的旧包。不能删除或覆盖 `~/Library/Application Support/SwitchGPT-sly` 中的账号数据；安装失败时恢复原应用。
+- 安装后核对 `/Applications/switchgpt-sly.app` 的实际运行路径、已添加账号和本次修改的可见行为，并报告构建、测试、安装及验收结果。若因环境限制无法完成安装或验收，要明确说明，不能声称功能已可在已安装应用中使用。

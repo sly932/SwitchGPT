@@ -129,7 +129,7 @@ switchgpt usage --cached | jq '{source, totalCount, errorCount, partialCount}'
 ```
 
 开发时可使用 `swift run switchgpt quota`；如未创建命令入口，也可直接运行
-`~/Applications/switchgpt-sly.app/Contents/Helpers/switchgpt quota`。
+`/Applications/switchgpt-sly.app/Contents/Helpers/switchgpt quota`。
 本 CLI 随本地新构建交付，旧的公开 `0.2.3` 下载包不包含此命令。
 
 ### 应用更新
@@ -207,6 +207,10 @@ xcrun swift test
 xcrun swift run SwitchGPTSafetySimulator matrix
 ./script/build_and_run.sh --verify
 ```
+
+在个人版仓库中，直接运行 `./script/build_and_run.sh` 会构建、安装或更新
+`/Applications/switchgpt-sly.app`，然后启动应用。若旧版只装在 `~/Applications`，
+先将它移到 `/Applications` 再运行脚本。开发时可用 `--verify` 构建并验证临时包。
 
 本地运行官网：
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Install a stable command pointing into an already installed app bundle.
-app_bundle="${1:-$HOME/Applications/switchgpt-sly.app}"
+app_bundle="${1:-/Applications/switchgpt-sly.app}"
 command_directory="${2:-$HOME/.local/bin}"
 cli="$app_bundle/Contents/Helpers/switchgpt"
 link="$command_directory/switchgpt"
