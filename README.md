@@ -91,8 +91,8 @@ switchgpt quota --cached
 ```
 
 默认读取 `~/Library/Application Support/SwitchGPT-sly/preview-state.json` 中所有已添加账号，
-每次实时查询，不要求 Dashboard 正在运行。`--cached` 只读本地快照；CLI 不写回应用数据，
-也不切换桌面账号或同步当前桌面凭证。若账号在桌面重新登录后仍查询失败，先在应用中刷新以同步凭证。
+每次实时查询，不要求 Dashboard 正在运行。`--cached` 只读本地快照。`quota` 和 `usage`
+只返回查询结果。若账号在桌面重新登录后仍查询失败，先在应用中刷新以同步凭证。
 其他数据文件可用 `--state-file /绝对路径/preview-state.json` 指定；文件必须保持私有权限 `600`。
 没有保存文件时返回空数组；文件损坏或权限不安全时整条命令失败。
 
@@ -131,6 +131,20 @@ switchgpt usage --cached | jq '{source, totalCount, errorCount, partialCount}'
 开发时可使用 `swift run switchgpt quota`；如未创建命令入口，也可直接运行
 `~/Applications/switchgpt-sly.app/Contents/Helpers/switchgpt quota`。
 本 CLI 随本地新构建交付，旧的公开 `0.2.3` 下载包不包含此命令。
+
+### 定时刷新用量与登录凭据
+
+安装当前本地构建的 `~/Applications/switchgpt-sly.app` 后，可主动启用用户级 LaunchAgent：
+
+```sh
+./script/scheduled-usage-refresh.sh install
+./script/scheduled-usage-refresh.sh status
+./script/scheduled-usage-refresh.sh uninstall
+```
+
+启用后，macOS 在你保持登录期间按本地时间于每天 **09:00 和 21:00** 各运行一次。退出 SwitchGPT 后仍可刷新，睡眠期间错过的触发会在唤醒后合并执行，关机期间错过的触发会跳过。用量读取成功后保存到本地，供 Dashboard 显示。可手动运行 `switchgpt refresh` 执行同一刷新并查看成功、失败和续期数量。`status` 显示最近一次的退出状态，`1` 表示任务或部分账号读取失败，已成功读取的用量仍会保存。若 macOS 禁用了此任务，可在系统设置的登录项中检查后台运行权限。
+
+对于能确认已经切走、且登录凭据独立的 SwitchGPT 托管账号，Codex 会按需续期，并在各自的私有档案保存更新后的凭据。当前桌面账号的续期由桌面端管理。外部档案和普通用量查询只使用现有的访问令牌。若凭据已撤销或无法续期，可通过官方登录流程重新添加或更新该账号。
 
 ### 应用更新
 

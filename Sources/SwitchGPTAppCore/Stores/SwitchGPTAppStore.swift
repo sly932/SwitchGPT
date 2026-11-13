@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwitchGPTSafetyCore
 
 public enum SwitchGPTActivity: Equatable, Sendable {
   case ready
@@ -83,6 +84,7 @@ public final class SwitchGPTAppStore {
   private let accountOnboarder: any ManagedAccountOnboarding
   private let persistence: any PreviewStatePersisting
   private let credentialSynchronizer: any ActiveAccountCredentialSynchronizing
+  private let backgroundUsageStore: BackgroundUsageSnapshotStore?
 
   public var allAccountsTokenActivity: AllAccountsTokenActivity {
     AllAccountsTokenActivity(accounts: accounts, excluding: quotaRefreshFailedAccountIDs)
@@ -96,7 +98,8 @@ public final class SwitchGPTAppStore {
     persistence: any PreviewStatePersisting = NoopPreviewStateStore(),
     initialAccounts: [AccountRecord]? = nil,
     credentialSynchronizer: any ActiveAccountCredentialSynchronizing =
-      NoopActiveAccountCredentialSynchronizer()
+      NoopActiveAccountCredentialSynchronizer(),
+    backgroundUsageStore: BackgroundUsageSnapshotStore? = nil
   ) {
     let defaultAccounts = initialAccounts ?? MockAccountCatalog.accounts(now: now)
     let startsWithoutDemoAccounts = initialAccounts?.isEmpty == true
@@ -135,6 +138,7 @@ public final class SwitchGPTAppStore {
     self.accountOnboarder = accountOnboarder
     self.persistence = persistence
     self.credentialSynchronizer = credentialSynchronizer
+    self.backgroundUsageStore = backgroundUsageStore
     self.lastPersistenceError = nil
 
     if startsWithoutDemoAccounts, migratedMockAccounts {
@@ -180,6 +184,8 @@ public final class SwitchGPTAppStore {
       try Task.checkCancellation()
       let probe = try await accountProbe.probe(codexHomePath: path)
       try Task.checkCancellation()
+      let credentialLock = try AccountCredentialLock.acquireIfConfigured(for: persistence)
+      defer { credentialLock?.release() }
       if let accountID,
         accounts.first(where: { $0.id == accountID })?.identityHash != probe.identityHash
       {
@@ -320,16 +326,16 @@ public final class SwitchGPTAppStore {
   }
 
   /// Replaces only the untouched two-account demo catalog with the currently active local
-  /// account. The probe stages auth.json and explicitly disables refresh-token mutation.
+  /// account. The probe uses read-only desktop authentication.
   public func bootstrapCurrentAccountIfNeeded() async {
     guard !activity.isBusy else { return }
     guard accounts.isEmpty || Self.isUntouchedDemoCatalog(accounts) else { return }
     let activeHome = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".codex", isDirectory: true)
-      .path
     activity = .refreshing
     do {
-      let probe = try await accountProbe.probe(codexHomePath: activeHome)
+      let probe = try await accountProbe.probeActiveProfile(
+        authenticationFileURL: activeHome.appendingPathComponent("auth.json"))
       let account = AccountRecord(
         id: AccountID("account-" + UUID().uuidString.lowercased()),
         displayName: probe.email ?? "Current account",
@@ -339,7 +345,7 @@ public final class SwitchGPTAppStore {
         symbolName: "person.crop.circle",
         accent: .orange,
         usage: probe.usage,
-        source: .codexHome(path: activeHome),
+        source: .codexHome(path: activeHome.path),
         identityHash: probe.identityHash,
         usageRefreshedAt: Date()
       )
@@ -372,7 +378,8 @@ public final class SwitchGPTAppStore {
     activity = .refreshing
     var managedPath: String?
     do {
-      let activeProbe = try await accountProbe.probe(codexHomePath: activeHome.path)
+      let activeProbe = try await accountProbe.probeActiveProfile(
+        authenticationFileURL: activeHome.appendingPathComponent("auth.json"))
       guard activeProbe.identityHash == expectedIdentity else {
         activity = .failure(
           message: "The active ChatGPT account no longer matches its saved identity")
@@ -387,6 +394,8 @@ public final class SwitchGPTAppStore {
         return
       }
 
+      let credentialLock = try AccountCredentialLock.acquireIfConfigured(for: persistence)
+      defer { credentialLock?.release() }
       let previous = accounts[index]
       accounts[index] = AccountRecord(
         id: previous.id,
@@ -420,10 +429,10 @@ public final class SwitchGPTAppStore {
     synchronizeActiveAccountCredentials()
     let activeHome = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".codex", isDirectory: true)
-      .path
 
     do {
-      let activeProbe = try await accountProbe.probe(codexHomePath: activeHome)
+      let activeProbe = try await accountProbe.probeActiveProfile(
+        authenticationFileURL: activeHome.appendingPathComponent("auth.json"))
       guard let index = accounts.firstIndex(where: { $0.identityHash == activeProbe.identityHash })
       else { return }
 
@@ -442,7 +451,7 @@ public final class SwitchGPTAppStore {
         usageRefreshedAt: Date()
       )
       currentAccountID = previous.id
-      lastRefreshedAt = Date()
+      quotaRefreshFailedAccountIDs.remove(previous.id)
       _ = persistState()
     } catch {
       NSLog(
@@ -493,6 +502,14 @@ public final class SwitchGPTAppStore {
     else { return }
     guard !isCurrent(accountID) else { return }
 
+    let credentialLock: TransactionLock?
+    do {
+      credentialLock = try AccountCredentialLock.acquireIfConfigured(for: persistence)
+    } catch {
+      activity = .failure(message: "Could not remove the account")
+      return
+    }
+    defer { credentialLock?.release() }
     let previousAccounts = accounts
     let previousCurrentAccountID = currentAccountID
     let removed = accounts.remove(at: index)
@@ -671,12 +688,33 @@ public final class SwitchGPTAppStore {
   ) async {
     guard maxAge >= 0 else { return }
     guard !accounts.isEmpty else { return }
+    reloadBackgroundUsage()
     guard let lastRefreshedAt else {
       await refresh(reportsActivity: reportsActivity)
       return
     }
     if now.timeIntervalSince(lastRefreshedAt) >= maxAge {
       await refresh(reportsActivity: reportsActivity)
+    }
+  }
+
+  public func reloadBackgroundUsage() {
+    guard let backgroundUsageStore, !accounts.isEmpty else { return }
+    do {
+      let merged = try backgroundUsageStore.overlay(on: accounts)
+      if merged.accounts != accounts {
+        for (previous, updated) in zip(accounts, merged.accounts) where previous != updated {
+          quotaRefreshFailedAccountIDs.remove(updated.id)
+        }
+        accounts = merged.accounts
+      }
+      if let complete = merged.lastCompleteRefresh,
+        lastRefreshedAt.map({ $0 < complete }) ?? true
+      {
+        lastRefreshedAt = complete
+      }
+    } catch {
+      NSLog("[SwitchGPT/quota] could not read saved background usage")
     }
   }
 

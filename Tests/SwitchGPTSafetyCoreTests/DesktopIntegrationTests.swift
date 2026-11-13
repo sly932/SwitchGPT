@@ -271,6 +271,35 @@ final class DesktopIntegrationTests: XCTestCase {
     XCTAssertEqual(process.startCount, 1)
   }
 
+  func testSwitchArchivesCredentialsRenewedDuringDesktopExit() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    let authority = FixtureProjectAuthority(afterExit: { _ in
+      let current = try Data(contentsOf: fixture.activeAuthenticationURL)
+      try (current + Data("\n".utf8)).write(to: fixture.activeAuthenticationURL)
+    })
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(
+        authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: authority,
+      activeAuthenticationURL: fixture.activeAuthenticationURL,
+      preserveDepartingCredentialsAfterExit: true)
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("switch"))
+    let source = try XCTUnwrap(fixture.profiles.first?.authenticationFileURL)
+    let previous = try Data(contentsOf: source)
+
+    let result = try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB)
+
+    XCTAssertEqual(result.phase, .committed)
+    XCTAssertEqual(try Data(contentsOf: source), previous + Data("\n".utf8))
+    XCTAssertEqual(try Data(contentsOf: fixture.recoverySnapshotURL), try Data(contentsOf: source))
+  }
+
   func testEarlyArmedRecoveryUsesSnapshotCreatedLaterByTheSwitch() throws {
     let fixture = try makeFixture()
     let projects = FixtureProjectStateSynchronizer()

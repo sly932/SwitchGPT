@@ -13,6 +13,7 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
   private let activeAuthenticationURL: URL
   private let managedAuthenticationURLs: [URL]
   private let recoveryAuthenticationURL: URL?
+  private let preserveDepartingCredentialsAfterExit: Bool
 
   public init(
     sourceIdentity: IdentityID,
@@ -23,7 +24,8 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     projectStateSynchronizer: LocalProjectStateSynchronizing? = nil,
     activeAuthenticationURL: URL? = nil,
     managedAuthenticationURLs: [URL]? = nil,
-    recoveryAuthenticationURL: URL? = nil
+    recoveryAuthenticationURL: URL? = nil,
+    preserveDepartingCredentialsAfterExit: Bool = false
   ) throws {
     var profilesByIdentity: [IdentityID: DesktopCredentialProfile] = [:]
     for profile in profiles {
@@ -45,6 +47,7 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     self.managedAuthenticationURLs = managedAuthenticationURLs
       ?? profiles.map(\.authenticationFileURL)
     self.recoveryAuthenticationURL = recoveryAuthenticationURL
+    self.preserveDepartingCredentialsAfterExit = preserveDepartingCredentialsAfterExit
   }
 
   public func prepareSwitch() throws {
@@ -117,6 +120,12 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     }
     guard try identityReader.currentIdentity() == sourceIdentity else {
       throw DesktopIntegrationError.identityMismatch
+    }
+    if preserveDepartingCredentialsAfterExit {
+      // Desktop may have renewed the source since the pre-quit credential copy.
+      try SecureAuthenticationFileInstaller.synchronizePrivateAuthenticationFile(
+        from: activeAuthenticationURL, to: source.authenticationFileURL,
+        expectedIdentity: sourceIdentity)
     }
     try authenticationInstaller.snapshotActiveStateIfNeeded()
     try authenticationInstaller.installAuthenticationFile(

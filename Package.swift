@@ -57,7 +57,7 @@ let package = Package(
     ),
     .target(
       name: "SwitchGPTAppCore",
-      dependencies: ["SwitchGPTDesktopIntegration"]
+      dependencies: ["SwitchGPTDesktopIntegration", "SwitchGPTSafetyCore"]
     ),
     .target(
       name: "SwitchGPTDesktopIntegration",

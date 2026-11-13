@@ -4,11 +4,13 @@ import SwitchGPTAppCore
 @main
 struct SwitchGPTCLI {
   static let help = """
-    Usage: switchgpt <quota|usage> [--cached] [--state-file PATH] [--timeout SECONDS]
+    Usage: switchgpt <quota|usage|refresh> [--cached] [--state-file PATH] [--timeout SECONDS]
 
       quota     All saved accounts: plan, remaining percentages, reset times,
                 credits and reset-card inventory (count and expiry metadata).
       usage     Quota plus all supported token activity and daily usage buckets.
+      refresh   Save Dashboard usage and let Codex renew eligible managed profiles.
+                Uses the default app data and accepts no flags. Outputs counts only.
       --cached  Read saved snapshots only; do not contact account services.
       --state-file PATH
                 Use another private preview-state.json (default: SwitchGPT-sly).
@@ -18,13 +20,21 @@ struct SwitchGPTCLI {
     JSON on stdout. Dates are ISO 8601 UTC; missing fields mean unknown, never zero.
     An account failure is an entry with status=error, not a command failure.
     Exit codes: 0 report produced (even all accounts failed), 1 state/output error,
-    2 invalid arguments. Queries never update the app's saved state or switch accounts.
+    2 invalid arguments. The quota and usage commands do not write or switch accounts.
+    Refresh exits 1 on a job or account error, after saving successful snapshots.
     """
 
   static func main() async {
     let args = Array(CommandLine.arguments.dropFirst())
     if args.isEmpty || args == ["--help"] || args == ["-h"] {
       print(help)
+      return
+    }
+    if args.first == "refresh" {
+      guard args.count == 1 else {
+        fail(code: "invalid_arguments", message: "refresh accepts no flags.", exitCode: 2)
+      }
+      await refresh()
       return
     }
     guard let command = args.first, ["quota", "usage"].contains(command) else {
@@ -60,8 +70,12 @@ struct SwitchGPTCLI {
     }
     let service = AccountReportService(reader: CodexAppServerQuotaReader(
       timeout: .seconds(timeout), includeTokenActivity: command == "usage"))
-    let report = await service.report(
-      accounts: state?.accounts ?? [], includeUsage: command == "usage", cached: cached)
+    let savedAccounts = state?.accounts ?? []
+    let accounts = cached && stateStore.fileURL == PreviewStateFileStore.defaultStore.fileURL
+      ? ((try? BackgroundUsageSnapshotStore.defaultStore.overlay(on: savedAccounts).accounts)
+        ?? savedAccounts)
+      : savedAccounts
+    let report = await service.report(accounts: accounts, includeUsage: command == "usage", cached: cached)
     do {
       let encoder = JSONEncoder()
       encoder.dateEncodingStrategy = .iso8601
@@ -70,6 +84,16 @@ struct SwitchGPTCLI {
       try FileHandle.standardOutput.write(contentsOf: data + Data([0x0A]))
     } catch {
       fail(code: "output_failed", message: "Could not write the JSON report.", exitCode: 1)
+    }
+  }
+
+  static func refresh() async {
+    do {
+      let result = try await BackgroundUsageRefresh().run()
+      print("Updated: \(result.updatedCount); failed: \(result.failedCount); renewed: \(result.renewedCount)")
+      if result.failedCount > 0 { exit(1) }
+    } catch {
+      fail(code: "refresh_failed", message: "Background refresh could not complete.", exitCode: 1)
     }
   }
 

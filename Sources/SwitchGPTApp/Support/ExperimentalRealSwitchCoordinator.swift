@@ -37,6 +37,7 @@ enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
   case activeAccountNotPreserved
   case targetAccountChanged
   case sourceAndTargetMatch
+  case credentialsBusy
   case insecureStorage
   case recoveryHelperFailed
   case switchFailed
@@ -57,6 +58,8 @@ enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
       return L10n.string("The selected account credentials no longer match the pinned account.")
     case .sourceAndTargetMatch:
       return L10n.string("ChatGPT is already using this account.")
+    case .credentialsBusy:
+      return L10n.string("Account credentials are being updated. Try switching again shortly.")
     case .insecureStorage:
       return L10n.string("SwitchGPT could not create private recovery storage.")
     case .recoveryHelperFailed:
@@ -184,6 +187,13 @@ enum ExperimentalRealSwitchCoordinator {
   ) throws
     -> RealSwitchResult
   {
+    let credentialLock: TransactionLock
+    do {
+      credentialLock = try AccountCredentialLock.acquire()
+    } catch SafetyError.lockUnavailable {
+      throw ExperimentalRealSwitchError.credentialsBusy
+    }
+    defer { credentialLock.release() }
     guard try validateTargetApplication() == plan.targetApplicationCompatibility else {
       throw ExperimentalRealSwitchError.targetApplicationChanged
     }
@@ -252,7 +262,8 @@ enum ExperimentalRealSwitchCoordinator {
         transactionDirectoryURL: transactionDirectory
       ),
       activeAuthenticationURL: activeAuthenticationURL,
-      managedAuthenticationURLs: managedAuthenticationURLs
+      managedAuthenticationURLs: managedAuthenticationURLs,
+      preserveDepartingCredentialsAfterExit: true
     )
     let hostEvidence = try SystemSupervisorHostEvidenceCollector.collect(
       configuration: SupervisorHostConfiguration(

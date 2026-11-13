@@ -117,7 +117,7 @@ final class AppCoreTests: XCTestCase {
     let binaryURL = root.appendingPathComponent("fake-codex")
     let script = #"""
       #!/bin/bash
-      marker="$(cat "$CODEX_HOME/auth.json")"
+      [[ ! -e "$CODEX_HOME/auth.json" ]] || exit 1
       request_count=0
       while IFS= read -r line; do
         if [[ "$line" != *'"id":'* ]]; then
@@ -128,23 +128,18 @@ final class AppCoreTests: XCTestCase {
         if [[ "$request_count" -eq 1 ]]; then
           printf '{"id":%s,"result":{}}\n' "$request_id"
         elif [[ "$request_count" -eq 2 ]]; then
-          if [[ "$marker" == *failure* ]]; then
-            if [[ "$marker" == *usage-failure* ]]; then
-              email="usage-failure@example.com"
-            else
-              email="failure@example.com"
-            fi
-          else
-            email="success@example.com"
-          fi
-          printf '{"id":%s,"result":{"account":{"email":"%s","planType":"plus"}}}\n' "$request_id" "$email"
+          marker="$(printf '%s' "$line" | sed -n 's/.*"chatgptAccountId":"\([^"]*\)".*/\1/p')"
+          [[ -n "$marker" ]] || exit 1
+          printf '{"id":%s,"result":{"type":"chatgptAuthTokens"}}\n' "$request_id"
         elif [[ "$request_count" -eq 3 ]]; then
+          printf '{"id":%s,"result":{"account":{"type":"chatgpt","email":"%s@example.com","planType":"plus"}}}\n' "$request_id" "$marker"
+        elif [[ "$request_count" -eq 4 ]]; then
           if [[ "$marker" == failure ]]; then
             printf '{"id":%s,"error":{"code":-32603,"message":"expired"}}\n' "$request_id"
           else
             printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":1900000000},"secondary":{"usedPercent":34,"windowDurationMins":10080,"resetsAt":1900500000}}}}\n' "$request_id"
           fi
-        elif [[ "$request_count" -eq 4 ]]; then
+        elif [[ "$request_count" -eq 5 ]]; then
           if [[ "$marker" == *usage-failure* ]]; then
             printf '{"id":%s,"error":{"code":-32601,"message":"method unavailable"}}\n' "$request_id"
           else
@@ -168,7 +163,8 @@ final class AppCoreTests: XCTestCase {
         attributes: [.posixPermissions: 0o700]
       )
       let authURL = home.appendingPathComponent("auth.json")
-      try Data(marker.utf8).write(to: authURL)
+      try fixtureChatGPTAuthentication(email: "\(marker)@example.com", accountID: marker)
+        .write(to: authURL)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: authURL.path)
       return AccountRecord(
         id: AccountID(id),

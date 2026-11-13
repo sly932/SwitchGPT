@@ -30,6 +30,9 @@ public struct ActiveAccountCredentialSynchronizer: ActiveAccountCredentialSynchr
   public func synchronize(accounts: [AccountRecord]) throws -> AccountID? {
     guard accounts.contains(where: { if case .codexHome = $0.source { true } else { false } })
     else { return nil }
+    let credentialLock = try AccountCredentialLock.acquire(
+      appDirectory: accountsRootURL.deletingLastPathComponent())
+    defer { credentialLock.release() }
     let activeIdentity = try PinnedAuthenticationIdentityReader(
       authenticationFileURL: activeAuthenticationURL
     ).currentIdentity()

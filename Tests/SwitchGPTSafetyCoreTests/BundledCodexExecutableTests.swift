@@ -117,7 +117,8 @@ final class BundledCodexExecutableTests: XCTestCase {
     let homeAttributes = try FileManager.default.attributesOfItem(atPath: home.path)
     XCTAssertEqual((homeAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
     let authURL = home.appendingPathComponent("auth.json")
-    try Data("{}".utf8).write(to: authURL)
+    let authentication = try fixtureChatGPTAuthentication(email: "fixture@example.com")
+    try authentication.write(to: authURL)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: authURL.path)
 
     let probe = try await CodexAppServerQuotaReader(
@@ -128,7 +129,7 @@ final class BundledCodexExecutableTests: XCTestCase {
     XCTAssertEqual(probe.planName, "Plus")
     XCTAssertEqual(probe.usage.fiveHour?.usedPercent, 12)
     XCTAssertEqual(probe.usage.weekly.usedPercent, 34)
-    XCTAssertEqual(try Data(contentsOf: authURL), Data("{}".utf8))
+    XCTAssertEqual(try Data(contentsOf: authURL), authentication)
   }
 
   private func makeFixture() throws -> (root: URL, application: URL) {
@@ -156,7 +157,8 @@ final class BundledCodexExecutableTests: XCTestCase {
         printf 'login' > "$CODEX_HOME/login-invoked"
         exit 0
       fi
-      [[ "$1" == app-server && "$2" == --stdio ]] || exit 1
+      [[ "$1" == -c && "$2" == 'cli_auth_credentials_store="ephemeral"' && "$3" == -c && "$4" == 'project_root_markers=[]' && "$5" == app-server && "$6" == --stdio ]] || exit 1
+      [[ ! -e "$CODEX_HOME/auth.json" ]] || exit 1
       request_count=0
       while IFS= read -r line; do
         [[ "$line" == *'"id":'* ]] || continue
@@ -164,8 +166,14 @@ final class BundledCodexExecutableTests: XCTestCase {
         request_id="$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')"
         case "$request_count" in
           1) printf '{"id":%s,"result":{}}\n' "$request_id" ;;
-          2) printf '{"id":%s,"result":{"account":{"email":"fixture@example.com","planType":"plus"}}}\n' "$request_id" ;;
-          3) printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":1900000000},"secondary":{"usedPercent":34,"windowDurationMins":10080,"resetsAt":1900500000}}}}\n' "$request_id" ;;
+          2)
+            [[ "$line" == *'"method":"account\/login\/start"'* || "$line" == *'"method":"account/login/start"'* ]] || exit 1
+            [[ "$line" == *'"accessToken":'* && "$line" != *'fixture-refresh-token'* ]] || exit 1
+            printf '{"id":%s,"result":{"type":"chatgptAuthTokens"}}\n' "$request_id"
+            ;;
+          3) printf '{"id":%s,"result":{"account":{"type":"chatgpt","email":"fixture@example.com","planType":"plus"}}}\n' "$request_id" ;;
+          4) printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":1900000000},"secondary":{"usedPercent":34,"windowDurationMins":10080,"resetsAt":1900500000}}}}\n' "$request_id" ;;
+          5) printf '{"id":%s,"error":{"code":-32601}}\n' "$request_id" ;;
         esac
       done
       """#

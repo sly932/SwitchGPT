@@ -206,6 +206,7 @@
 "SwitchGPT must first preserve the active account in private storage." = "SwitchGPT 需要先将当前账号保存到私有存储中。";
 "The selected account credentials no longer match the pinned account." = "所选账号的凭据与先前固定的账号身份不再匹配。";
 "ChatGPT is already using this account." = "ChatGPT 已在使用此账号。";
+"Account credentials are being updated. Try switching again shortly." = "正在更新账号凭据，请稍后再切换。";
 "SwitchGPT could not create private recovery storage." = "SwitchGPT 无法创建私有恢复存储。";
 "The independent recovery process could not be verified or completed." = "独立恢复进程未能完成验证或执行。";
 "The switch did not complete; SwitchGPT attempted to restore the original account." = "切换未完成；SwitchGPT 已尝试还原原账号。";

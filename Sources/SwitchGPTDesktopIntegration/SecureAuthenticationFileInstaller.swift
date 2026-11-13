@@ -93,7 +93,7 @@ public final class SecureAuthenticationFileInstaller: AuthenticationStateInstall
   }
 
   public static func readPrivateAuthenticationFile(at url: URL) throws -> Data {
-    let descriptor = url.path.withCString { open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+    let descriptor = url.path.withCString { open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK) }
     guard descriptor >= 0 else { throw DesktopIntegrationError.invalidAuthenticationFile }
     defer { close(descriptor) }
 

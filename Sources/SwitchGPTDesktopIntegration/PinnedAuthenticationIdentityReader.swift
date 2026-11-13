@@ -16,7 +16,7 @@ public final class PinnedAuthenticationIdentityReader: InstalledIdentityReading 
     return try Self.identity(fromAuthenticationData: data)
   }
 
-  static func identity(fromAuthenticationData data: Data) throws -> IdentityID {
+  public static func identity(fromAuthenticationData data: Data) throws -> IdentityID {
     try SecureAuthenticationFileInstaller.validateAuthenticationPayload(data)
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
       let tokens = object["tokens"] as? [String: Any],
