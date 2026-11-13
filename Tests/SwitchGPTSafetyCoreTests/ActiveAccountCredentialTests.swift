@@ -86,6 +86,65 @@ final class ActiveAccountCredentialTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: fixture.profileA), fixture.savedB)
   }
 
+  func testAnotherWorkspaceForTheSameEmailCannotOverwriteTheArchive() throws {
+    let fixture = try CredentialFixture()
+    defer { fixture.remove() }
+    let otherWorkspace = try CredentialFixture.authentication(
+      email: "a@example.test", generation: "other", workspace: "different-workspace")
+    try CredentialFixture.write(otherWorkspace, to: fixture.active)
+
+    XCTAssertThrowsError(try fixture.synchronizer.synchronize(accounts: fixture.accounts)) {
+      XCTAssertEqual($0 as? DesktopIntegrationError, .identityMismatch)
+    }
+    XCTAssertEqual(try Data(contentsOf: fixture.profileA), fixture.savedA)
+  }
+
+  func testOlderDesktopCredentialsCannotOverwriteANewerLegacyArchive() throws {
+    let fixture = try CredentialFixture()
+    defer { fixture.remove() }
+    let older = try CredentialFixture.authentication(
+      email: "a@example.test", generation: "older",
+      lastRefresh: "2026-11-13T18:00:00Z")
+    let newer = try CredentialFixture.authentication(
+      email: "a@example.test", generation: "newer",
+      lastRefresh: "2026-11-13T21:00:00.123Z")
+    try CredentialFixture.write(older, to: fixture.active)
+    try CredentialFixture.write(newer, to: fixture.profileA)
+
+    XCTAssertEqual(try fixture.synchronizer.synchronize(accounts: fixture.accounts), fixture.accounts[0].id)
+    XCTAssertEqual(try Data(contentsOf: fixture.profileA), newer)
+  }
+
+  func testNewDesktopLoginCanReplaceAnOlderGrantForTheSameWorkspace() throws {
+    let fixture = try CredentialFixture()
+    defer { fixture.remove() }
+    let desktop = try CredentialFixture.authentication(
+      email: "a@example.test", generation: "desktop", login: "desktop-grant",
+      lastRefresh: "2026-11-13T18:00:00Z")
+    let archived = try CredentialFixture.authentication(
+      email: "a@example.test", generation: "archived", login: "archived-grant",
+      lastRefresh: "2026-11-13T21:00:00.123Z")
+    try CredentialFixture.write(desktop, to: fixture.active)
+    try CredentialFixture.write(archived, to: fixture.profileA)
+
+    XCTAssertEqual(try fixture.synchronizer.synchronize(accounts: fixture.accounts), fixture.accounts[0].id)
+    XCTAssertEqual(try Data(contentsOf: fixture.profileA), desktop)
+  }
+
+  func testMixedCaseEmailMatchesBothStoredPinFormats() throws {
+    let authentication = try CredentialFixture.authentication(
+      email: "User@Example.test", generation: "active")
+    let normalized = try PinnedAuthenticationIdentityReader.identity(
+      fromAuthenticationData: authentication).rawValue
+    let hashes = try PinnedAuthenticationIdentityReader.identityHashes(
+      fromAuthenticationData: authentication)
+    let metadata = try CodexAccountDecoder.decode(
+      from: Data(#"{"email":"User@Example.test"}"#.utf8))
+
+    XCTAssertNotEqual(metadata.identityHash, normalized)
+    XCTAssertEqual(hashes, Set([normalized, metadata.identityHash]))
+  }
+
   func testUnconfiguredAndExternalAccountsRemainUntouched() throws {
     let fixture = try CredentialFixture()
     defer { fixture.remove() }
@@ -195,11 +254,25 @@ private struct CredentialFixture {
 
   func remove() { try? FileManager.default.removeItem(at: root) }
 
-  static func authentication(email: String, generation: String) throws -> Data {
-    let payload = try JSONSerialization.data(withJSONObject: ["email": email]).base64EncodedString()
-    return try JSONSerialization.data(withJSONObject: [
-      "tokens": ["id_token": "fixture.\(payload).fixture", "access_token": generation]
-    ], options: [.sortedKeys])
+  static func authentication(
+    email: String, generation: String, workspace: String? = nil, login: String? = nil,
+    lastRefresh: String? = nil
+  ) throws -> Data {
+    let workspaceID = workspace ?? "workspace-\(email.lowercased())"
+    let payload = try JSONSerialization.data(withJSONObject: [
+      "email": email,
+      "https://api.openai.com/auth": [
+        "chatgpt_user_id": "user-\(email.lowercased())", "chatgpt_account_id": workspaceID,
+      ],
+    ], options: [.sortedKeys]).base64EncodedString()
+    var tokens = [
+      "id_token": "fixture.\(payload).fixture", "access_token": generation,
+      "account_id": workspaceID, "refresh_token": generation,
+    ]
+    tokens["login_owner_id"] = login
+    var document: [String: Any] = ["tokens": tokens]
+    document["last_refresh"] = lastRefresh
+    return try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
   }
 
   static func write(_ data: Data, to url: URL) throws {

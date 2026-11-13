@@ -30,7 +30,7 @@ public struct BackgroundUsageSnapshotStore: Sendable {
     let lock = try TransactionLock(url: directory.appendingPathComponent(".snapshots.lock"))
     defer { lock.release() }
 
-    var cache = try load()
+    var cache = try load(rebuildingInvalidContents: true)
     let profiles = Set(accounts.compactMap(Profile.init))
     cache.entries = cache.entries.filter { profiles.contains($0.value.profile) }
     for profile in profiles {
@@ -72,7 +72,7 @@ public struct BackgroundUsageSnapshotStore: Sendable {
     return (updatedAccounts, lastCompleteRefresh)
   }
 
-  private func load() throws -> Cache {
+  private func load(rebuildingInvalidContents: Bool = false) throws -> Cache {
     let descriptor = open(fileURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
     if descriptor < 0, errno == ENOENT { return Cache() }
     guard descriptor >= 0 else { throw PreviewStatePersistenceError.invalidFile }
@@ -84,14 +84,27 @@ public struct BackgroundUsageSnapshotStore: Sendable {
       info.st_uid == geteuid(), info.st_nlink == 1, info.st_mode & 0o777 == 0o600
     else { throw PreviewStatePersistenceError.insecureFile }
     let limit = PreviewStateFileStore.maximumFileSize
-    guard info.st_size <= limit else { throw PreviewStatePersistenceError.oversizedFile }
+    guard info.st_size <= limit else {
+      if rebuildingInvalidContents { return Cache() }
+      throw PreviewStatePersistenceError.oversizedFile
+    }
     let data = try handle.read(upToCount: limit + 1) ?? Data()
-    guard data.count <= limit else { throw PreviewStatePersistenceError.oversizedFile }
+    guard data.count <= limit else {
+      if rebuildingInvalidContents { return Cache() }
+      throw PreviewStatePersistenceError.oversizedFile
+    }
 
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .secondsSince1970
-    let cache = try decoder.decode(Cache.self, from: data)
+    let cache: Cache
+    do {
+      cache = try decoder.decode(Cache.self, from: data)
+    } catch is DecodingError {
+      if rebuildingInvalidContents { return Cache() }
+      throw PreviewStatePersistenceError.invalidFile
+    }
     guard cache.schemaVersion == Cache.currentSchemaVersion else {
+      if rebuildingInvalidContents { return Cache() }
       throw PreviewStatePersistenceError.unsupportedSchema
     }
     return cache

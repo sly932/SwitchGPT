@@ -17,23 +17,41 @@ public final class PinnedAuthenticationIdentityReader: InstalledIdentityReading 
   }
 
   public static func identity(fromAuthenticationData data: Data) throws -> IdentityID {
-    try SecureAuthenticationFileInstaller.validateAuthenticationPayload(data)
-    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let tokens = object["tokens"] as? [String: Any],
-      let idToken = tokens["id_token"] as? String,
-      let email = Self.email(fromJWT: idToken)
-    else {
-      throw DesktopIntegrationError.invalidAuthenticationPayload
-    }
-    let digest = SHA256.hash(data: Data(email.lowercased().utf8))
-    let shortHash = digest.map { String(format: "%02x", $0) }.joined().prefix(12)
-    guard let identity = IdentityID(rawValue: String(shortHash)) else {
+    let email = try identityEmail(fromAuthenticationData: data)
+    guard let identity = IdentityID(rawValue: hash(email.lowercased())) else {
       throw DesktopIntegrationError.invalidAuthenticationPayload
     }
     return identity
   }
 
-  private static func email(fromJWT token: String) -> String? {
+  public static func identityHashes(fromAuthenticationData data: Data) throws -> Set<String> {
+    identityHashes(forEmail: try identityEmail(fromAuthenticationData: data))
+  }
+
+  /// Existing quota records can hold the original-case hash, while desktop switching
+  /// uses the case-normalized hash.
+  public static func identityHashes(forEmail email: String) -> Set<String> {
+    [hash(email), hash(email.lowercased())]
+  }
+
+  private static func hash(_ email: String) -> String {
+    let digest = SHA256.hash(data: Data(email.utf8))
+    return String(digest.map { String(format: "%02x", $0) }.joined().prefix(12))
+  }
+
+  private static func identityEmail(fromAuthenticationData data: Data) throws -> String {
+    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let tokens = object["tokens"] as? [String: Any],
+      let idToken = tokens["id_token"] as? String,
+      let email = claims(fromJWT: idToken)?["email"] as? String, !email.isEmpty
+    else {
+      throw DesktopIntegrationError.invalidAuthenticationPayload
+    }
+    return email
+  }
+
+  package static func claims(fromJWT token: String?) -> [String: Any]? {
+    guard let token else { return nil }
     let segments = token.split(separator: ".", omittingEmptySubsequences: false)
     guard segments.count == 3 else { return nil }
     var payload = String(segments[1])
@@ -43,14 +61,7 @@ public final class PinnedAuthenticationIdentityReader: InstalledIdentityReading 
     if remainder != 0 {
       payload += String(repeating: "=", count: 4 - remainder)
     }
-    guard
-      let data = Data(base64Encoded: payload),
-      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let email = object["email"] as? String,
-      !email.isEmpty
-    else {
-      return nil
-    }
-    return email
+    guard let data = Data(base64Encoded: payload) else { return nil }
+    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
   }
 }

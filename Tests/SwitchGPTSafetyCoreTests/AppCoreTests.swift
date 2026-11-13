@@ -733,6 +733,35 @@ final class AppCoreTests: XCTestCase {
     }
   }
 
+  func testRateLimitDecoderHandlesNonfiniteAndOutOfRangeNumbers() throws {
+    func payload(
+      used: Any, reset: Any, resetCreditCount: Any = "9223372036854775808"
+    ) throws -> Data {
+      try JSONSerialization.data(withJSONObject: [
+        "primary": ["usedPercent": used, "resetsAt": reset],
+        "rateLimitResetCredits": ["availableCount": resetCreditCount],
+      ])
+    }
+
+    for invalidValue in ["NaN", "Infinity", "-Infinity"] {
+      XCTAssertThrowsError(try CodexRateLimitDecoder.decodeUsage(
+        from: payload(used: invalidValue, reset: 1_787_059_702)))
+      XCTAssertThrowsError(try CodexRateLimitDecoder.decodeUsage(
+        from: payload(used: 20, reset: invalidValue)))
+    }
+    XCTAssertThrowsError(try CodexRateLimitDecoder.decodeUsage(
+      from: payload(used: true, reset: 1_787_059_702)))
+    let usage = try CodexRateLimitDecoder.decodeUsage(
+      from: payload(used: "1e200", reset: 1_787_059_702))
+    XCTAssertEqual(usage.weekly.usedPercent, 100)
+    XCTAssertNil(usage.resetCredits)
+    for largestCount in [Int.max as Any, String(Int.max)] {
+      let usage = try CodexRateLimitDecoder.decodeUsage(
+        from: payload(used: 20, reset: 1_787_059_702, resetCreditCount: largestCount))
+      XCTAssertEqual(usage.resetCredits?.availableCount, Int.max)
+    }
+  }
+
   func testAccountDecoderPreservesFreeMembership() throws {
     let payload = """
       {

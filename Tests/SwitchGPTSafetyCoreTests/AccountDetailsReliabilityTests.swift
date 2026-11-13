@@ -152,6 +152,36 @@ final class AccountDetailsReliabilityTests: XCTestCase {
     XCTAssertEqual(try fixture.methods().filter { $0 == "account/usage/read" }.count, 1)
   }
 
+  func testExitedServerDoesNotTerminateQuotaReader() async throws {
+    var responses = DetailsFixture.responses
+    responses[0]["exitAfterReply"] = true
+    let fixture = try DetailsFixture(responses: responses)
+    defer { fixture.remove() }
+    do {
+      _ = try await fixture.reader.probe(codexHomePath: fixture.home.path)
+      XCTFail("Expected the incomplete exchange to fail")
+    } catch {
+      XCTAssertTrue(error is QuotaReadingError)
+    }
+  }
+
+  func testServerIgnoringTerminationIsStoppedAfterDeadline() async throws {
+    var responses = DetailsFixture.responses
+    responses[0]["ignoreTerminate"] = true
+    responses[0]["delay"] = 8
+    let fixture = try DetailsFixture(responses: responses)
+    defer { fixture.remove() }
+    let reader = CodexAppServerQuotaReader(codexBinaryURL: fixture.binary, timeout: .milliseconds(500))
+    let start = ContinuousClock.now
+    do {
+      _ = try await reader.probe(codexHomePath: fixture.home.path)
+      XCTFail("Expected a deadline error")
+    } catch {
+      XCTAssertEqual(error as? QuotaReadingError, .timedOut)
+      XCTAssertTrue(start.duration(to: .now) < .seconds(4))
+    }
+  }
+
   func testMultiAccountReaderLimitsConcurrencyAndQueriesTheQueue() async throws {
     var responses = DetailsFixture.responses
     responses[0]["delay"] = 0.2
@@ -296,7 +326,7 @@ private struct DetailsFixture {
       def stop(*args):
           event({'event':'end', 'pid':os.getpid()})
           sys.exit(0)
-      signal.signal(signal.SIGTERM, stop)
+      signal.signal(signal.SIGTERM, signal.SIG_IGN if responses[0].get('ignoreTerminate') else stop)
       event({'event':'start', 'pid':os.getpid()})
       index = 0
       for line in sys.stdin:
@@ -314,6 +344,8 @@ private struct DetailsFixture {
               result = {k:v for k,v in response.items() if k in ['result','error']}
           result['id'] = request['id']
           print(json.dumps(result), flush=True)
+          if response.get('exitAfterReply'):
+              stop()
       stop()
       """
     try Data(script.utf8).write(to: binary)

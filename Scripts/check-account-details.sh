@@ -21,14 +21,14 @@ func XCTAssertTrue(_ value: Bool) { precondition(value, "Expected true") }
 func XCTFail(_ message: String) { preconditionFailure(message) }
 ''')
 methods = re.findall(r'func (test\w+)\(\) async throws', source)
-assert len(methods) == 13, 'Update runner when adding or changing reliability cases'
+assert len(methods) == 15, 'Update runner when adding or changing reliability cases'
 calls = '\n'.join(f'    try await tests.{name}()\n    print("PASS: {name}")\n    fflush(nil)' for name in methods)
 source += '''
 @main struct DetailsRegressionCheck {
   @MainActor static func main() async throws {
     let tests = AccountDetailsReliabilityTests()
 ''' + calls + '''
-    print("PASS: 13 account-details reliability cases (standalone Swift assertions)")
+    print("PASS: 15 account-details reliability cases (standalone Swift assertions)")
   }
 }
 '''

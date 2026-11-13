@@ -6,6 +6,7 @@ struct MenuBarLabel: View {
 
   @Environment(\.openWindow) private var openWindow
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
+  @State private var backgroundUsageObserver: AtomicFileDirectoryObserver?
   @State private var didRequestDashboard = false
 
   var body: some View {
@@ -14,6 +15,13 @@ struct MenuBarLabel: View {
       .environment(\.locale, (AppLanguage(rawValue: languageRawValue) ?? .system).locale)
       .accessibilityLabel(accessibilityQuotaLabel)
       .task {
+        if backgroundUsageObserver == nil {
+          backgroundUsageObserver = AtomicFileDirectoryObserver(
+            directory: BackgroundUsageSnapshotStore.defaultStore.fileURL.deletingLastPathComponent()
+          ) { [weak store] in
+            Task { @MainActor [weak store] in store?.reloadBackgroundUsage() }
+          }
+        }
         guard !didRequestDashboard else { return }
         didRequestDashboard = true
         openWindow(id: "dashboard")

@@ -63,6 +63,36 @@ final class BackgroundUsageSnapshotTests: XCTestCase {
     XCTAssertThrowsError(try fixture.snapshots.overlay(on: accounts)) { error in
       XCTAssertEqual(error as? PreviewStatePersistenceError, .insecureFile)
     }
+    XCTAssertThrowsError(try fixture.snapshots.save([accounts[0].id: snapshot(30)], for: accounts)) { error in
+      XCTAssertEqual(error as? PreviewStatePersistenceError, .insecureFile)
+    }
+
+    let target = fixture.directory.appendingPathComponent("original.json")
+    try FileManager.default.moveItem(at: fixture.snapshots.fileURL, to: target)
+    try FileManager.default.createSymbolicLink(at: fixture.snapshots.fileURL, withDestinationURL: target)
+    let original = try Data(contentsOf: target)
+    XCTAssertThrowsError(try fixture.snapshots.save([accounts[0].id: snapshot(30)], for: accounts))
+    XCTAssertEqual(try Data(contentsOf: target), original)
+  }
+
+  func testSaveRebuildsMalformedOwnedCache() throws {
+    let fixture = makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    let accounts = [account("first", at: Date(timeIntervalSince1970: 100))]
+    try fixture.snapshots.save([accounts[0].id: snapshot(20)], for: accounts)
+    let malformedCaches = [
+      Data("{".utf8),
+      Data(#"{"schemaVersion":99,"entries":{}}"#.utf8),
+      Data(repeating: 0, count: PreviewStateFileStore.maximumFileSize + 1),
+    ]
+
+    for malformedCache in malformedCaches {
+      try malformedCache.write(to: fixture.snapshots.fileURL)
+      XCTAssertThrowsError(try fixture.snapshots.overlay(on: accounts))
+      try fixture.snapshots.save([accounts[0].id: snapshot(30)], for: accounts)
+      let updated = try fixture.snapshots.overlay(on: accounts)
+      XCTAssertEqual(updated.accounts.map(\.usage.weekly.usedPercent), [30])
+    }
   }
 
   private func makeFixture() -> (directory: URL, snapshots: BackgroundUsageSnapshotStore) {

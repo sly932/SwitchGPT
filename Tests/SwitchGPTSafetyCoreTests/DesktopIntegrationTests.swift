@@ -585,7 +585,12 @@ final class DesktopIntegrationTests: XCTestCase {
 
   private func writeAuthentication(email: String, to url: URL) throws {
     let header = Data("{\"alg\":\"none\"}".utf8).base64URLEncodedString()
-    let payload = try JSONSerialization.data(withJSONObject: ["email": email])
+    let payload = try JSONSerialization.data(withJSONObject: [
+      "email": email,
+      "https://api.openai.com/auth": [
+        "chatgpt_user_id": "user-\(email)", "chatgpt_account_id": "workspace-\(email)",
+      ],
+    ])
       .base64URLEncodedString()
     let object: [String: Any] = [
       "auth_mode": "chatgpt",

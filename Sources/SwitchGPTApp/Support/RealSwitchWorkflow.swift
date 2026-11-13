@@ -21,7 +21,7 @@ enum RealSwitchWorkflow {
   static func prepare(targetID: AccountID, store: SwitchGPTAppStore) async throws
     -> RealSwitchPlan
   {
-    guard await store.refreshAccount(targetID) else {
+    guard await store.refreshAccount(targetID, recoveringExpiredSwitchTarget: true) else {
       throw RealSwitchWorkflowError.quotaRefreshFailed
     }
     guard let target = store.accounts.first(where: { $0.id == targetID }) else {

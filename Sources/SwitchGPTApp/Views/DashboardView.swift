@@ -20,7 +20,6 @@ struct DashboardView: View {
   @State private var selectedAccountID: AccountID?
   @State private var section: DashboardSection = .account
   @State private var accountSignInTask: Task<Void, Never>?
-  @State private var backgroundUsageObserver: AtomicFileDirectoryObserver?
   @State private var windowTopInset: CGFloat = 0
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
 
@@ -109,11 +108,6 @@ struct DashboardView: View {
       }
     }
     .task {
-      backgroundUsageObserver = AtomicFileDirectoryObserver(
-        directory: BackgroundUsageSnapshotStore.defaultStore.fileURL.deletingLastPathComponent()
-      ) { [weak store] in
-        Task { @MainActor [weak store] in store?.reloadBackgroundUsage() }
-      }
       store.reloadBackgroundUsage()
       await store.bootstrapCurrentAccountIfNeeded()
       await store.preserveActiveAccountForSwitchingIfNeeded()
@@ -140,7 +134,6 @@ struct DashboardView: View {
     }
     .onDisappear {
       accountSignInTask?.cancel()
-      backgroundUsageObserver = nil
     }
     .alert(updateCheckAlertTitle, isPresented: updateCheckAlertIsPresented) {
       if let notice = updateStore.manualCheckNotice,

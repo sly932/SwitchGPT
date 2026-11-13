@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SwitchGPTDesktopIntegration
 
@@ -56,7 +57,10 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
             else {
               return (accountID, .failure(.identityNotPinned))
             }
-            guard snapshot.identityHash == expectedIdentityHash else {
+            guard snapshot.identityHash == expectedIdentityHash
+              || PinnedAuthenticationIdentityReader.identityHashes(forEmail: snapshot.email)
+                .contains(expectedIdentityHash)
+            else {
               return (accountID, .failure(.identityMismatch))
             }
             return (
@@ -126,7 +130,9 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
 
   /// The caller owns the account lock and has verified that this is the inactive
   /// managed profile. Codex may renew directly into its authoritative auth.json.
-  func probeManagedProfile(codexHomePath: String) async throws -> ReadOnlyAccountProbe {
+  func probeManagedProfile(codexHomePath: String, refreshToken: Bool) async throws
+    -> ReadOnlyAccountProbe
+  {
     let profileURL = URL(fileURLWithPath: codexHomePath).standardizedFileURL
     let entries = try FileManager.default.contentsOfDirectory(atPath: profileURL.path)
     guard !entries.contains("config.toml"), !entries.contains(".codex") else {
@@ -134,7 +140,7 @@ public struct CodexAppServerQuotaReader: QuotaReading, ReadOnlyAccountProbing, S
     }
     let client = CodexAppServerClient(
       binaryURL: codexBinaryURL, codexHome: profileURL, timeout: timeout,
-      includeTokenActivity: includeTokenActivity, access: .managed
+      includeTokenActivity: includeTokenActivity, access: .managed(refreshToken: refreshToken)
     )
     return try await Task.detached(priority: .utility) { try client.readSnapshot().probe }.value
   }
@@ -345,8 +351,9 @@ struct CodexCredentialClaims {
     guard let document = try? JSONSerialization.jsonObject(with: authenticationData) as? [String: Any],
       let tokens = document["tokens"] as? [String: Any]
     else { throw QuotaReadingError.invalidAuthenticationFile }
-    idClaims = Self.jwtClaims(from: tokens["id_token"] as? String)
-    accessClaims = Self.jwtClaims(from: tokens["access_token"] as? String)
+    idClaims = PinnedAuthenticationIdentityReader.claims(fromJWT: tokens["id_token"] as? String)
+    accessClaims = PinnedAuthenticationIdentityReader.claims(
+      fromJWT: tokens["access_token"] as? String)
     let idAuth = idClaims?["https://api.openai.com/auth"] as? [String: Any]
     let accessAuth = accessClaims?["https://api.openai.com/auth"] as? [String: Any]
     self.tokens = tokens
@@ -359,22 +366,12 @@ struct CodexCredentialClaims {
       ?? (accessClaims?["sub"] as? String)
   }
 
-  static func jwtClaims(from jwt: String?) -> [String: Any]? {
-    guard let jwt else { return nil }
-    let segments = jwt.split(separator: ".", omittingEmptySubsequences: false)
-    guard segments.count == 3 else { return nil }
-    var payload = segments[1].replacingOccurrences(of: "-", with: "+")
-      .replacingOccurrences(of: "_", with: "/")
-    payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-    guard let data = Data(base64Encoded: payload) else { return nil }
-    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-  }
 }
 
 private struct CodexAppServerClient: Sendable {
   enum Access: Sendable {
     case readOnly(ReadOnlyAccountAuthentication)
-    case managed
+    case managed(refreshToken: Bool)
 
     var storageMode: String {
       switch self {
@@ -385,6 +382,11 @@ private struct CodexAppServerClient: Sendable {
 
     var experimentalAPI: Bool {
       if case .readOnly = self { return true }
+      return false
+    }
+
+    var refreshToken: Bool {
+      if case .managed(let refreshToken) = self { return refreshToken }
       return false
     }
   }
@@ -423,6 +425,13 @@ private struct CodexAppServerClient: Sendable {
 
     let input = Pipe()
     let output = Pipe()
+    let writeFD = input.fileHandleForWriting.fileDescriptor
+    let writeFlags = fcntl(writeFD, F_GETFL)
+    guard writeFlags >= 0, fcntl(writeFD, F_SETFL, writeFlags | O_NONBLOCK) == 0,
+      fcntl(writeFD, F_SETNOSIGPIPE, 1) == 0
+    else {
+      throw QuotaReadingError.processLaunchFailed
+    }
     process.standardInput = input
     process.standardOutput = output
     process.standardError = FileHandle.nullDevice
@@ -434,22 +443,33 @@ private struct CodexAppServerClient: Sendable {
     }
 
     let deadline = ContinuousClock.now.advanced(by: timeout)
+    let dispatchDeadline = DispatchTime.now() + timeout.timeInterval
     let timeoutItem = DispatchWorkItem {
       if process.isRunning {
         process.terminate()
       }
     }
+    let killItem = DispatchWorkItem {
+      if process.isRunning {
+        _ = kill(process.processIdentifier, SIGKILL)
+      }
+    }
     DispatchQueue.global(qos: .utility).asyncAfter(
-      deadline: .now() + timeout.timeInterval,
+      deadline: dispatchDeadline,
       execute: timeoutItem
+    )
+    DispatchQueue.global(qos: .utility).asyncAfter(
+      deadline: dispatchDeadline + .seconds(1),
+      execute: killItem
     )
 
     defer {
-      timeoutItem.cancel()
       if process.isRunning {
         process.terminate()
       }
       process.waitUntilExit()
+      timeoutItem.cancel()
+      killItem.cancel()
     }
 
     var nextID = 1
@@ -465,9 +485,9 @@ private struct CodexAppServerClient: Sendable {
       ],
       input: input,
       output: output,
-      nextID: &nextID
+      nextID: &nextID, deadline: deadline
     )
-    try sendNotification(method: "initialized", input: input)
+    try sendNotification(method: "initialized", input: input, deadline: deadline)
     if case .readOnly(let authentication) = access {
       var params: [String: Any] = [
         "type": "chatgptAuthTokens",
@@ -477,7 +497,7 @@ private struct CodexAppServerClient: Sendable {
       if let planType = authentication.planType { params["chatgptPlanType"] = planType }
       let loginData = try request(
         method: "account/login/start", params: params, input: input, output: output,
-        nextID: &nextID
+        nextID: &nextID, deadline: deadline
       )
       guard let login = try? JSONSerialization.jsonObject(with: loginData) as? [String: Any],
         login["type"] as? String == "chatgptAuthTokens"
@@ -487,10 +507,10 @@ private struct CodexAppServerClient: Sendable {
     }
     let accountData = try request(
       method: "account/read",
-      params: ["refreshToken": false],
+      params: ["refreshToken": access.refreshToken],
       input: input,
       output: output,
-      nextID: &nextID
+      nextID: &nextID, deadline: deadline
     )
     let accountMetadata: CodexAccountMetadata
     switch access {
@@ -504,7 +524,7 @@ private struct CodexAppServerClient: Sendable {
       params: NSNull(),
       input: input,
       output: output,
-      nextID: &nextID
+      nextID: &nextID, deadline: deadline
     )
     var quotaUsage = try CodexRateLimitDecoder.decodeUsage(from: rateLimitsData)
     var planName = try CodexRateLimitDecoder.decodePlanName(
@@ -528,7 +548,7 @@ private struct CodexAppServerClient: Sendable {
       ContinuousClock.now < deadline,
       let retriedData = try? request(
         method: "account/rateLimits/read", params: NSNull(),
-        input: input, output: output, nextID: &nextID),
+        input: input, output: output, nextID: &nextID, deadline: deadline),
       let retriedUsage = try? CodexRateLimitDecoder.decodeUsage(from: retriedData),
       retriedUsage.resetCredits != nil
     {
@@ -551,7 +571,7 @@ private struct CodexAppServerClient: Sendable {
       do {
         return try CodexTokenActivityDecoder.decode(from: request(
           method: "account/usage/read", params: NSNull(),
-          input: input, output: output, nextID: &nextID))
+          input: input, output: output, nextID: &nextID, deadline: deadline))
       } catch let error as AppServerResponseError
         where attempt == 0 && error.isRetryable && ContinuousClock.now < deadline
       {
@@ -565,10 +585,42 @@ private struct CodexAppServerClient: Sendable {
     return nil
   }
 
-  private func sendNotification(method: String, input: Pipe) throws {
+  private func sendNotification(
+    method: String, input: Pipe, deadline: ContinuousClock.Instant
+  ) throws {
     let encoded = try JSONSerialization.data(withJSONObject: ["method": method])
-    input.fileHandleForWriting.write(encoded)
-    input.fileHandleForWriting.write(Data([0x0A]))
+    try writeLine(encoded, input: input, deadline: deadline)
+  }
+
+  private func writeLine(_ data: Data, input: Pipe, deadline: ContinuousClock.Instant) throws {
+    let fd = input.fileHandleForWriting.fileDescriptor
+    try (data + Data([0x0A])).withUnsafeBytes { bytes in
+      guard let start = bytes.baseAddress else { return }
+      var offset = 0
+      while offset < bytes.count {
+        try waitForPipe(fd, event: Int16(POLLOUT), deadline: deadline)
+        let count = Darwin.write(fd, start.advanced(by: offset), bytes.count - offset)
+        if count < 0, errno == EINTR || errno == EAGAIN { continue }
+        guard count > 0 else { throw QuotaReadingError.invalidProtocolResponse }
+        offset += count
+      }
+    }
+  }
+
+  private func waitForPipe(_ fd: Int32, event: Int16, deadline: ContinuousClock.Instant) throws {
+    while true {
+      let remaining = ContinuousClock.now.duration(to: deadline).timeInterval
+      guard remaining > 0 else { throw QuotaReadingError.timedOut }
+      let milliseconds = min(ceil(remaining * 1_000), Double(Int32.max))
+      var descriptor = pollfd(fd: fd, events: event, revents: 0)
+      let ready = poll(&descriptor, 1, Int32(milliseconds))
+      if ready < 0, errno == EINTR { continue }
+      if ready == 0 { throw QuotaReadingError.timedOut }
+      guard ready > 0, descriptor.revents & (event | Int16(POLLHUP)) != 0 else {
+        throw QuotaReadingError.invalidProtocolResponse
+      }
+      return
+    }
   }
 
   private func request(
@@ -576,20 +628,21 @@ private struct CodexAppServerClient: Sendable {
     params: Any,
     input: Pipe,
     output: Pipe,
-    nextID: inout Int
+    nextID: inout Int,
+    deadline: ContinuousClock.Instant
   ) throws -> Data {
+    guard ContinuousClock.now < deadline else { throw QuotaReadingError.timedOut }
     let requestID = nextID
     nextID += 1
     let message: [String: Any] = ["id": requestID, "method": method, "params": params]
     let encoded = try JSONSerialization.data(withJSONObject: message)
-    input.fileHandleForWriting.write(encoded)
-    input.fileHandleForWriting.write(Data([0x0A]))
+    try writeLine(encoded, input: input, deadline: deadline)
 
     var buffer = Data()
     while true {
-      // `readData(ofLength:)` can wait for the full requested byte count on a pipe. App-server
-      // responses are normally much smaller, so that behavior deadlocks until our timeout kills
-      // the child. `availableData` returns as soon as a response chunk is available.
+      // A descendant can inherit stdout even after the app-server exits.
+      // Wait for data only until the account deadline.
+      try waitForPipe(output.fileHandleForReading.fileDescriptor, event: Int16(POLLIN), deadline: deadline)
       let chunk = output.fileHandleForReading.availableData
       if chunk.isEmpty {
         throw QuotaReadingError.timedOut

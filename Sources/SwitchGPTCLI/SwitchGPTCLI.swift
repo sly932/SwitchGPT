@@ -21,7 +21,7 @@ struct SwitchGPTCLI {
     An account failure is an entry with status=error, not a command failure.
     Exit codes: 0 report produced (even all accounts failed), 1 state/output error,
     2 invalid arguments. The quota and usage commands do not write or switch accounts.
-    Refresh exits 1 on a job or account error, after saving successful snapshots.
+    Refresh exits 1 on a job, quota or requested credential renewal error.
     """
 
   static func main() async {
@@ -90,8 +90,9 @@ struct SwitchGPTCLI {
   static func refresh() async {
     do {
       let result = try await BackgroundUsageRefresh().run()
-      print("Updated: \(result.updatedCount); failed: \(result.failedCount); renewed: \(result.renewedCount)")
-      if result.failedCount > 0 { exit(1) }
+      print("Usage updated: \(result.updatedCount), usage failed: \(result.failedCount), "
+        + "credentials renewed: \(result.renewedCount), renewal failed: \(result.renewalFailedCount)")
+      if result.failedCount > 0 || result.renewalFailedCount > 0 { exit(1) }
     } catch {
       fail(code: "refresh_failed", message: "Background refresh could not complete.", exitCode: 1)
     }

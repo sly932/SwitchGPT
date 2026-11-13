@@ -53,8 +53,15 @@ elif [[ ! -e "$agent_plist" && ! -L "$agent_plist" ]]; then
 fi
 
 [[ ! -L "$agent_dir" ]] || fail "The LaunchAgents directory is a symbolic link. It was left untouched."
-candidate="$(/usr/bin/mktemp "$agent_dir/.switchgpt-refresh.XXXXXX")"
-trap '/bin/rm "$candidate"' EXIT
+work_dir="$(/usr/bin/mktemp -d "$agent_dir/.switchgpt-refresh.XXXXXX")"
+candidate="$work_dir/daily.plist"
+legacy="$work_dir/twice-daily.plist"
+previous="$work_dir/previous.plist"
+cleanup() {
+  /bin/rm -f "$candidate" "$legacy" "$previous"
+  /bin/rmdir "$work_dir"
+}
+trap cleanup EXIT
 
 /bin/cat > "$candidate" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -69,13 +76,11 @@ trap '/bin/rm "$candidate"' EXIT
   <string></string>
   <key>ProgramArguments</key>
   <array>
-    <string></string>
     <string>refresh</string>
   </array>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key>
   <string>/dev/null</string>
@@ -85,40 +90,79 @@ trap '/bin/rm "$candidate"' EXIT
 </plist>
 PLIST
 /usr/bin/plutil -replace Program -string "$cli" "$candidate"
-/usr/bin/plutil -replace ProgramArguments.0 -string "$cli" "$candidate"
+/usr/bin/plutil -insert ProgramArguments.0 -string "$cli" "$candidate"
 /usr/bin/plutil -lint -s "$candidate"
 
+old_schedule=false
 if [[ -e "$agent_plist" || -L "$agent_plist" ]]; then
   [[ -f "$agent_plist" && ! -L "$agent_plist" ]] \
-    && /usr/bin/cmp -s "$candidate" "$agent_plist" \
     || fail "An unexpected file exists at $agent_plist. It was left untouched."
+  if ! /usr/bin/cmp -s "$candidate" "$agent_plist"; then
+    /bin/cp "$candidate" "$legacy"
+    /usr/bin/plutil -insert StartCalendarInterval.1 -json '{"Hour":21,"Minute":0}' "$legacy"
+    if ! /usr/bin/cmp -s "$legacy" "$agent_plist"; then
+      # Some plutil versions inserted the executable ahead of the old placeholder.
+      /usr/bin/plutil -insert ProgramArguments.1 -string '' "$legacy"
+      /usr/bin/cmp -s "$legacy" "$agent_plist" \
+        || fail "An unexpected file exists at $agent_plist. It was left untouched."
+    fi
+    old_schedule=true
+  fi
 fi
 
-if [[ "$1" == uninstall ]]; then
+stop_idle_job() {
   if [[ -n "$job" ]]; then
-    if /usr/bin/awk '/^\tpid = / { running = 1 } END { exit !running }' <<< "$job"; then
-      fail "A refresh is running. Wait for it to finish before uninstalling."
+    local current_job
+    current_job="$(/bin/launchctl print "$service")" \
+      || fail "The registered service changed. Retry after checking its status."
+    if /usr/bin/awk '/^\tpid = / { running = 1 } END { exit !running }' <<< "$current_job"; then
+      fail "A refresh is running. Wait for it to finish before changing its schedule."
     fi
-    /bin/launchctl bootout "$service"
+    /bin/launchctl bootout "$service" || fail "macOS could not unload scheduled usage refresh."
   fi
+}
+
+if [[ "$1" == uninstall ]]; then
+  stop_idle_job
   /bin/rm "$agent_plist"
   echo "Removed scheduled usage refresh."
   exit 0
 fi
 
-if [[ -n "$job" ]]; then
+if [[ -n "$job" && "$old_schedule" == false ]]; then
   [[ -f "$agent_plist" ]] || fail "The service is registered without its plist. It was left untouched."
   echo "Scheduled usage refresh is already installed."
   exit 0
 fi
 
-if [[ ! -f "$agent_plist" ]]; then
+if [[ "$old_schedule" == true ]]; then
+  /bin/ln "$agent_plist" "$previous"
+  stop_idle_job
+  if ! /bin/mv -f "$candidate" "$agent_plist"; then
+    if [[ -n "$job" ]]; then
+      /bin/launchctl bootstrap "$domain" "$agent_plist" || true
+    fi
+    fail "Could not update $agent_plist."
+  fi
+elif [[ ! -f "$agent_plist" ]]; then
   /bin/link "$candidate" "$agent_plist" || fail "Could not create $agent_plist without replacing an existing file."
 fi
 if ! /bin/launchctl bootstrap "$domain" "$agent_plist"; then
-  if [[ "$candidate" -ef "$agent_plist" ]] && ! /bin/launchctl print "$service" >/dev/null 2>&1; then
-    /bin/rm "$agent_plist"
+  if ! /bin/launchctl print "$service" >/dev/null 2>&1; then
+    if [[ "$old_schedule" == true ]]; then
+      if ! /bin/mv -f "$previous" "$agent_plist"; then
+        trap - EXIT
+        fail "Could not restore the previous plist. Its backup is at $previous."
+      fi
+      if [[ -n "$job" ]]; then
+        /bin/launchctl bootstrap "$domain" "$agent_plist" \
+          || fail "Restored the previous plist, but macOS could not reload it."
+      fi
+      fail "macOS did not register the daily schedule. Restored the previous schedule."
+    elif [[ "$candidate" -ef "$agent_plist" ]]; then
+      /bin/rm "$agent_plist"
+    fi
   fi
   fail "macOS did not register scheduled usage refresh."
 fi
-echo "Installed scheduled usage refresh at 09:00 and 21:00 local time."
+echo "Installed scheduled usage refresh daily at 09:00 local time."

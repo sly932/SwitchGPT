@@ -124,39 +124,40 @@ enum ExperimentalRealSwitchCoordinator {
     let activeAuthenticationURL = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".codex", isDirectory: true)
       .appendingPathComponent("auth.json")
-    let sourceIdentity = try PinnedAuthenticationIdentityReader(
-      authenticationFileURL: activeAuthenticationURL
-    ).currentIdentity()
-    guard
-      let sourceAccount = accounts.first(where: {
-        $0.identityHash == sourceIdentity.rawValue && Self.authenticationURL(for: $0) != nil
-      }), let sourceAuthenticationURL = authenticationURL(for: sourceAccount)
-    else {
+    let sourceData = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(
+      at: activeAuthenticationURL)
+    let sourceIdentity = try PinnedAuthenticationIdentityReader.identity(
+      fromAuthenticationData: sourceData)
+    let sourceHashes = try PinnedAuthenticationIdentityReader.identityHashes(
+      fromAuthenticationData: sourceData)
+    let matchingAccounts = accounts.filter { account in
+      account.identityHash.map { sourceHashes.contains($0) } ?? false
+    }
+    guard matchingAccounts.count == 1, let sourceAccount = matchingAccounts.first else {
       throw ExperimentalRealSwitchError.activeAccountNotConfigured
     }
-    guard sourceAuthenticationURL.standardizedFileURL != activeAuthenticationURL.standardizedFileURL
+    let onboarder = CodexManagedAccountOnboarder()
+    guard let sourceAuthenticationURL = try authenticationURL(for: sourceAccount, onboarder: onboarder)
     else {
       throw ExperimentalRealSwitchError.activeAccountNotPreserved
     }
     guard let targetHash = target.identityHash,
-      let targetIdentity = IdentityID(rawValue: targetHash),
-      let targetAuthenticationURL = authenticationURL(for: target)
+      let targetAuthenticationURL = try authenticationURL(for: target, onboarder: onboarder)
     else {
       throw ExperimentalRealSwitchError.targetAccountChanged
     }
-    guard targetAuthenticationURL.standardizedFileURL != activeAuthenticationURL.standardizedFileURL
+    let targetData = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(
+      at: targetAuthenticationURL)
+    guard
+      try PinnedAuthenticationIdentityReader.identityHashes(fromAuthenticationData: targetData)
+        .contains(targetHash)
     else {
-      throw ExperimentalRealSwitchError.activeAccountNotPreserved
+      throw ExperimentalRealSwitchError.targetAccountChanged
     }
+    let targetIdentity = try PinnedAuthenticationIdentityReader.identity(
+      fromAuthenticationData: targetData)
     guard sourceIdentity != targetIdentity else {
       throw ExperimentalRealSwitchError.sourceAndTargetMatch
-    }
-    guard
-      try PinnedAuthenticationIdentityReader(
-        authenticationFileURL: targetAuthenticationURL
-      ).currentIdentity() == targetIdentity
-    else {
-      throw ExperimentalRealSwitchError.targetAccountChanged
     }
 
     let helperURL = bundle.bundleURL
@@ -197,11 +198,22 @@ enum ExperimentalRealSwitchCoordinator {
     guard try validateTargetApplication() == plan.targetApplicationCompatibility else {
       throw ExperimentalRealSwitchError.targetApplicationChanged
     }
-    let managedAuthenticationURLs = try accounts.map { account in
-      guard let url = authenticationURL(for: account) else {
-        throw ExperimentalRealSwitchError.activeAccountNotConfigured
-      }
-      return url
+    let onboarder = CodexManagedAccountOnboarder()
+    let managedAuthenticationURLs = try accounts.compactMap {
+      try authenticationURL(for: $0, onboarder: onboarder)
+    }
+    guard managedAuthenticationURLs.contains(plan.sourceAuthenticationURL) else {
+      throw ExperimentalRealSwitchError.activeAccountNotPreserved
+    }
+    guard managedAuthenticationURLs.contains(plan.targetAuthenticationURL) else {
+      throw ExperimentalRealSwitchError.targetAccountChanged
+    }
+    let targetData = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(
+      at: plan.targetAuthenticationURL)
+    guard try PinnedAuthenticationIdentityReader.identity(fromAuthenticationData: targetData)
+      == plan.targetIdentity
+    else {
+      throw ExperimentalRealSwitchError.targetAccountChanged
     }
 
     let transactionDirectory = try makeTransactionDirectory()
@@ -333,11 +345,11 @@ enum ExperimentalRealSwitchCoordinator {
     return RealSwitchResult(outcome: outcome, receiptRecorded: receiptRecorded)
   }
 
-  private static func authenticationURL(for account: AccountRecord) -> URL? {
+  private static func authenticationURL(for account: AccountRecord, onboarder: CodexManagedAccountOnboarder)
+    throws -> URL?
+  {
     guard case .codexHome(let path) = account.source else { return nil }
-    return URL(fileURLWithPath: path, isDirectory: true)
-      .appendingPathComponent("auth.json")
-      .standardizedFileURL
+    return try onboarder.managedAuthenticationURL(for: path)
   }
 
   private static func validateTargetApplication() throws -> ChatGPTDesktopCompatibilityAssessment {

@@ -1,5 +1,5 @@
 import Foundation
-import SwitchGPTAppCore
+@testable import SwitchGPTAppCore
 import SwitchGPTDesktopIntegration
 import SwitchGPTSafetyCore
 import XCTest
@@ -13,11 +13,45 @@ final class BackgroundUsageRefreshTests: XCTestCase {
     XCTAssertEqual(result.updatedCount, 1)
     XCTAssertEqual(result.failedCount, 1)
     XCTAssertEqual(result.renewedCount, 1)
+    XCTAssertEqual(result.renewalFailedCount, 0)
     XCTAssertEqual(try Data(contentsOf: fixture.active), fixture.activeAuth)
     XCTAssertEqual(try Data(contentsOf: fixture.inactive), fixture.renewedAuth)
     let saved = try fixture.snapshots.overlay(on: fixture.accounts).accounts
     XCTAssertEqual(saved[0].usage.weekly.usedPercent, 12)
     XCTAssertEqual(saved[1].usage, fixture.accounts[1].usage)
+  }
+
+  func testCredentialsWithMoreThanThreeDaysRemainingAreNotForcedToRenew() async throws {
+    let fixture = try Fixture(daysUntilExpiry: 4)
+    defer { fixture.remove() }
+    let result = try await fixture.refresh.run()
+
+    XCTAssertEqual(result.updatedCount, 2)
+    XCTAssertEqual(result.renewedCount, 0)
+    XCTAssertEqual(result.renewalFailedCount, 0)
+    XCTAssertEqual(try Data(contentsOf: fixture.inactive), fixture.inactiveAuth)
+  }
+
+  func testUnconfirmedRenewalIsReportedEvenWhenQuotaSucceeds() async throws {
+    let fixture = try Fixture(daysUntilExpiry: -1, renewalSucceeds: false)
+    defer { fixture.remove() }
+    let result = try await fixture.refresh.run()
+
+    XCTAssertEqual(result.updatedCount, 2)
+    XCTAssertEqual(result.failedCount, 0)
+    XCTAssertEqual(result.renewedCount, 0)
+    XCTAssertEqual(result.renewalFailedCount, 1)
+    XCTAssertEqual(try Data(contentsOf: fixture.inactive), fixture.inactiveAuth)
+  }
+
+  func testExpiredSwitchTargetCanRenewBeforeScheduledRun() async throws {
+    let fixture = try Fixture(daysUntilExpiry: -1, quotaFailsAfterRenewal: false)
+    defer { fixture.remove() }
+    let result = try await fixture.refresh.recoverExpiredSwitchTarget(fixture.accounts[1])
+
+    XCTAssertEqual(result?.usage.weekly.usedPercent, 12)
+    XCTAssertEqual(try Data(contentsOf: fixture.inactive), fixture.renewedAuth)
+    XCTAssertEqual(try Data(contentsOf: fixture.active), fixture.activeAuth)
   }
 
   func testSharedLoginUsesAccessOnly() async throws {
@@ -55,7 +89,10 @@ final class BackgroundUsageRefreshTests: XCTestCase {
     let snapshots: BackgroundUsageSnapshotStore
     let refresh: BackgroundUsageRefresh
 
-    init(sharedLogin: Bool = false) throws {
+    init(
+      sharedLogin: Bool = false, daysUntilExpiry: Int = 2, renewalSucceeds: Bool = true,
+      quotaFailsAfterRenewal: Bool = true
+    ) throws {
       root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
         .appendingPathComponent("switchgpt-job-" + UUID().uuidString, isDirectory: true)
       let accountsRoot = root.appendingPathComponent("Accounts", isDirectory: true)
@@ -67,9 +104,11 @@ final class BackgroundUsageRefreshTests: XCTestCase {
       let inactiveEmail = "inactive@example.test"
       activeAuth = try Self.authentication(email: activeEmail, name: "active", refresh: "token-a")
       inactiveAuth = try Self.authentication(
-        email: inactiveEmail, name: "inactive", refresh: sharedLogin ? "token-a" : "token-b")
+        email: inactiveEmail, name: "inactive", refresh: sharedLogin ? "token-a" : "token-b",
+        daysUntilExpiry: daysUntilExpiry)
       renewedAuth = try Self.authentication(
-        email: inactiveEmail, name: "inactive", refresh: "rotated-b", lastRefresh: "2026-11-14T13:00:00Z")
+        email: inactiveEmail, name: "inactive", refresh: "rotated-b", daysUntilExpiry: 9,
+        lastRefresh: "2026-11-14T13:00:00Z")
       try Self.write(activeAuth, to: active)
       try Self.write(activeAuth, to: archivedActive.appendingPathComponent("auth.json"))
       try Self.write(inactiveAuth, to: inactive)
@@ -81,6 +120,7 @@ final class BackgroundUsageRefreshTests: XCTestCase {
         #!/usr/bin/env python3
         import json, os, shutil, sys
         managed = sys.argv[2] == 'cli_auth_credentials_store="file"'
+        renewed = False
         for line in sys.stdin:
             request = json.loads(line)
             if "id" not in request:
@@ -92,11 +132,15 @@ final class BackgroundUsageRefreshTests: XCTestCase {
             if method == "account/read":
                 account = {"type": "chatgpt", "planType": "pro"}
                 if managed:
-                    shutil.copyfile(json.loads(r'''\(renewalPath)'''), os.path.join(os.environ["CODEX_HOME"], "auth.json"))
+                    if request["params"]["refreshToken"] and \(renewalSucceeds ? "True" : "False"):
+                        shutil.copyfile(json.loads(r'''\(renewalPath)'''), os.path.join(os.environ["CODEX_HOME"], "auth.json"))
+                        renewed = True
                     account["email"] = "inactive@example.test"
+                elif request["params"]["refreshToken"]:
+                    sys.exit(1)
                 response["result"] = {"account": account}
             if method == "account/rateLimits/read":
-                if managed:
+                if renewed and \(quotaFailsAfterRenewal ? "True" : "False"):
                     response["error"] = {"code": -32603, "message": "fixture quota failure"}
                 else:
                     response["result"] = {"rateLimits": {"primary": {
@@ -138,11 +182,13 @@ final class BackgroundUsageRefreshTests: XCTestCase {
     }
 
     static func authentication(
-      email: String, name: String, refresh: String, lastRefresh: String = "2026-11-13T13:00:00Z"
+      email: String, name: String, refresh: String, daysUntilExpiry: Int = 9,
+      lastRefresh: String = "2026-11-13T13:00:00Z"
     ) throws -> Data {
       let workspace = "workspace-" + name
       let jwt = "fixture." + (try JSONSerialization.data(withJSONObject: [
-        "email": email, "https://api.openai.com/auth": [
+        "email": email, "exp": Date().timeIntervalSince1970 + Double(daysUntilExpiry) * 86400,
+        "https://api.openai.com/auth": [
           "chatgpt_user_id": "user-" + name, "chatgpt_account_id": workspace,
         ],
       ])).base64EncodedString() + ".fixture"
