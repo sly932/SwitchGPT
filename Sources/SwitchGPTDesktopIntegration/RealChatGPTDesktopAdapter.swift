@@ -14,6 +14,8 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
   private let managedAuthenticationURLs: [URL]
   private let recoveryAuthenticationURL: URL?
   private let preserveDepartingCredentialsAfterExit: Bool
+  private let validateConfirmedTargetApplication: (() throws -> Void)?
+  private var isStartingTarget = false
 
   public init(
     sourceIdentity: IdentityID,
@@ -25,7 +27,8 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     activeAuthenticationURL: URL? = nil,
     managedAuthenticationURLs: [URL]? = nil,
     recoveryAuthenticationURL: URL? = nil,
-    preserveDepartingCredentialsAfterExit: Bool = false
+    preserveDepartingCredentialsAfterExit: Bool = false,
+    validateConfirmedTargetApplication: (() throws -> Void)? = nil
   ) throws {
     var profilesByIdentity: [IdentityID: DesktopCredentialProfile] = [:]
     for profile in profiles {
@@ -48,6 +51,7 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
       ?? profiles.map(\.authenticationFileURL)
     self.recoveryAuthenticationURL = recoveryAuthenticationURL
     self.preserveDepartingCredentialsAfterExit = preserveDepartingCredentialsAfterExit
+    self.validateConfirmedTargetApplication = validateConfirmedTargetApplication
   }
 
   public func prepareSwitch() throws {
@@ -71,10 +75,14 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
   }
 
   public func install(identity: IdentityID) throws {
+    if identity != sourceIdentity {
+      try validateConfirmedTargetApplication?()
+    }
     if projectStateSynchronizer != nil, try processController.isRunning() {
       throw DesktopIntegrationError.desktopDidNotTerminate
     }
     if identity == sourceIdentity {
+      isStartingTarget = false
       guard let source = profilesByIdentity[sourceIdentity] else {
         throw DesktopIntegrationError.missingProfile
       }
@@ -111,6 +119,7 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
         managedAuthenticationURLs: managedAuthenticationURLs
       )
     }
+    try validateConfirmedTargetApplication?()
     try projectStateSynchronizer?.prepareSwitch(
       sourceAuthenticationURL: source.authenticationFileURL,
       targetAuthenticationURL: profile.authenticationFileURL
@@ -134,9 +143,13 @@ public final class RealChatGPTDesktopAdapter: TransactionDesktop {
     guard try identityReader.currentIdentity() == identity else {
       throw DesktopIntegrationError.identityMismatch
     }
+    isStartingTarget = true
   }
 
   public func start() throws {
+    if isStartingTarget {
+      try validateConfirmedTargetApplication?()
+    }
     try processController.launchAndWait()
   }
 }

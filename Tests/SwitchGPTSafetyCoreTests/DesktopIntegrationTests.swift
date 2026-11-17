@@ -153,6 +153,55 @@ final class DesktopIntegrationTests: XCTestCase {
     XCTAssertEqual(projects.prepareCount, 1)
   }
 
+  func testApplicationChangeDuringExitSkipsProjectAndCredentialWrites() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    let projects = FixtureProjectStateSynchronizer()
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: projects,
+      validateConfirmedTargetApplication: { throw DesktopIntegrationError.desktopDidNotLaunch }
+    )
+
+    try adapter.stop()
+    XCTAssertThrowsError(try adapter.install(identity: fixture.identityB))
+
+    XCTAssertEqual(projects.prepareCount, 0)
+    XCTAssertEqual(try adapter.currentIdentity(), fixture.identityA)
+    XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
+  }
+
+  func testApplicationChangeBeforeLaunchAllowsSourceRecovery() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    var applicationChanged = false
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      validateConfirmedTargetApplication: {
+        if applicationChanged { throw DesktopIntegrationError.desktopDidNotLaunch }
+      }
+    )
+
+    try adapter.stop()
+    try adapter.install(identity: fixture.identityB)
+    applicationChanged = true
+    XCTAssertThrowsError(try adapter.start())
+    XCTAssertEqual(process.startCount, 0)
+
+    try adapter.install(identity: fixture.identityA)
+    try adapter.start()
+    XCTAssertEqual(try adapter.currentIdentity(), fixture.identityA)
+    XCTAssertEqual(process.startCount, 1)
+  }
+
   func testSourceCaptureFailureRejectsBeforeDesktopStops() throws {
     let fixture = try makeFixture()
     let process = FixtureProcessController()
@@ -482,6 +531,39 @@ final class DesktopIntegrationTests: XCTestCase {
       ),
       [102]
     )
+  }
+
+  func testEmptyAppListDoesNotMeanTheObservedProcessExited() {
+    var observation = DesktopProcessObservation()
+    let start = ContinuousClock.now
+    let stabilityPeriod: Duration = .milliseconds(500)
+    observation.update(registered: [101], at: start, isAlive: { _ in true })
+
+    let listBecameEmpty = start.advanced(by: .seconds(1))
+    observation.update(registered: [], at: listBecameEmpty, isAlive: { _ in true })
+    XCTAssertEqual(observation.processIdentifiers, [101])
+    XCTAssertFalse(observation.hasStopped(at: listBecameEmpty, stabilityPeriod: stabilityPeriod))
+
+    let processExited = start.advanced(by: .seconds(2))
+    observation.update(registered: [], at: processExited, isAlive: { _ in false })
+    XCTAssertFalse(observation.hasStopped(at: processExited, stabilityPeriod: stabilityPeriod))
+    XCTAssertTrue(observation.hasStopped(
+      at: processExited.advanced(by: stabilityPeriod), stabilityPeriod: stabilityPeriod))
+  }
+
+  func testAnotherProcessAppearingRestartsTheExitObservationWindow() {
+    var observation = DesktopProcessObservation()
+    let start = ContinuousClock.now
+    let stabilityPeriod: Duration = .milliseconds(500)
+    observation.update(registered: [101], at: start, isAlive: { _ in true })
+    observation.update(registered: [], at: start.advanced(by: .milliseconds(100)), isAlive: { _ in false })
+    observation.update(registered: [102], at: start.advanced(by: .milliseconds(300)), isAlive: { _ in true })
+
+    let later = start.advanced(by: .milliseconds(700))
+    XCTAssertFalse(observation.hasStopped(at: later, stabilityPeriod: stabilityPeriod))
+    observation.update(registered: [], at: later, isAlive: { _ in false })
+    XCTAssertFalse(observation.hasStopped(at: later, stabilityPeriod: stabilityPeriod))
+    XCTAssertTrue(observation.hasStopped(at: later.advanced(by: stabilityPeriod), stabilityPeriod: stabilityPeriod))
   }
 
   func testFreshRecoveryProcessRestoresSnapshotAfterTargetInstallCrash() throws {

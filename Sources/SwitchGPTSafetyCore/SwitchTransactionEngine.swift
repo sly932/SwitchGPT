@@ -64,10 +64,6 @@ public final class SwitchTransactionEngine {
       try checkpoint(.afterTargetInstalled)
 
       record.phase = .startingTarget
-      guard record.targetLaunchAttempts == 0 else {
-        record.failureReason = .targetOperationFailed
-        return try rollback(record)
-      }
       record.targetLaunchAttempts = 1
       try store.save(record)
       try checkpoint(.afterTargetLaunchReserved)
@@ -76,20 +72,20 @@ public final class SwitchTransactionEngine {
 
       record.phase = .verifyingTarget
       try store.save(record)
-      guard try desktop.currentIdentity() == target else {
-        record.failureReason = .targetIdentityMismatch
-        return try rollback(record)
+      if try desktop.currentIdentity() == target {
+        record.phase = .committed
+        try store.save(record)
+        return record
       }
-
-      record.phase = .committed
-      try store.save(record)
-      return record
+      record.failureReason = .targetIdentityMismatch
+      record.targetFailurePhase = .verifyingTarget
     } catch let processExit as SimulatedProcessExit {
       throw processExit
     } catch {
       record.failureReason = .targetOperationFailed
-      return try rollback(record)
+      record.targetFailurePhase = record.phase
     }
+    return try rollback(record)
   }
 
   @discardableResult
@@ -112,6 +108,9 @@ public final class SwitchTransactionEngine {
       return RecoveryResult(record: record, disposition: .observedTerminal)
     }
 
+    if record.mode == .switching {
+      record.targetFailurePhase = record.targetFailurePhase ?? record.phase
+    }
     record.mode = .recoveryOnly
     record.failureReason = record.failureReason ?? .interrupted
     try store.save(record)
@@ -130,10 +129,12 @@ public final class SwitchTransactionEngine {
         if try desktop.isRunning(), try desktop.currentIdentity() == record.recoveryIdentity {
           record.phase = .rolledBack
         } else {
+          record.recoveryFailurePhase = .rollbackVerifying
           record.phase = .manualRecoveryRequired
           record.failureReason = .recoveryLaunchBudgetExhausted
         }
       } catch {
+        record.recoveryFailurePhase = .rollbackVerifying
         record.phase = .manualRecoveryRequired
         record.failureReason = .recoveryOperationFailed
       }
@@ -166,10 +167,7 @@ public final class SwitchTransactionEngine {
       record.phase = .rollbackVerifying
       try store.save(record)
       guard try desktop.currentIdentity() == record.recoveryIdentity else {
-        record.phase = .manualRecoveryRequired
-        record.failureReason = .recoveryOperationFailed
-        try store.save(record)
-        return record
+        throw SafetyError.sourceIdentityMismatch
       }
 
       record.phase = .rolledBack
@@ -178,11 +176,12 @@ public final class SwitchTransactionEngine {
     } catch let processExit as SimulatedProcessExit {
       throw processExit
     } catch {
+      record.recoveryFailurePhase = record.phase
       record.phase = .manualRecoveryRequired
       record.failureReason = .recoveryOperationFailed
-      try store.save(record)
-      return record
     }
+    try store.save(record)
+    return record
   }
 
   private func checkpoint(_ point: SafetyCheckpoint) throws {

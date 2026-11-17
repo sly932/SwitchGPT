@@ -100,6 +100,9 @@ public struct TransactionRecord: Codable, Equatable, Sendable {
   public var rollbackLaunchAttempts: Int
   public var targetWasInstalled: Bool
   public var failureReason: FailureReason?
+  // Missing in earlier v1 records. Encoding nil omits the keys from the checksum payload.
+  public var targetFailurePhase: TransactionPhase?
+  public var recoveryFailurePhase: TransactionPhase?
   public let createdAt: Date
   public var updatedAt: Date
 
@@ -120,6 +123,8 @@ public struct TransactionRecord: Codable, Equatable, Sendable {
     rollbackLaunchAttempts = 0
     targetWasInstalled = false
     failureReason = nil
+    targetFailurePhase = nil
+    recoveryFailurePhase = nil
     createdAt = now
     updatedAt = now
   }

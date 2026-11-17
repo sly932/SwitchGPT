@@ -52,6 +52,7 @@ final class AppCoreTests: XCTestCase {
       rollbackLaunchAttempts: 1,
       targetWasInstalled: true,
       failureReason: .targetIdentityMismatch,
+      targetFailurePhase: .verifyingTarget,
       transactionCreatedAt: Date(timeIntervalSince1970: 1_700_000_000),
       recordedAt: Date(timeIntervalSince1970: 1_700_000_010)
     )
@@ -92,6 +93,43 @@ final class AppCoreTests: XCTestCase {
     XCTAssertThrowsError(try store.save(receipt)) { error in
       XCTAssertEqual(error as? RealSwitchReceiptStoreError, .invalidReceipt)
     }
+  }
+
+  func testRealSwitchReceiptStoreLoadsLegacyV1ReceiptWithoutFailurePhases() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("switchgpt-legacy-receipt-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(
+      at: root,
+      withIntermediateDirectories: false,
+      attributes: [.posixPermissions: 0o700]
+    )
+    let id = try XCTUnwrap(UUID(uuidString: "11111111-1111-4111-8111-111111111111"))
+    let file = root.appendingPathComponent(id.uuidString.lowercased() + ".json")
+    let oldReceipt = """
+      {
+        "failureReason": "recoveryOperationFailed",
+        "finalIdentityHash": "012345abcdef",
+        "id": "11111111-1111-4111-8111-111111111111",
+        "outcome": "manualRecoveryRequired",
+        "recordedAt": "2023-11-14T22:13:30Z",
+        "rollbackLaunchAttempts": 0,
+        "schemaVersion": 1,
+        "sourceIdentityHash": "012345abcdef",
+        "targetIdentityHash": "fedcba543210",
+        "targetLaunchAttempts": 0,
+        "targetWasInstalled": false,
+        "transactionCreatedAt": "2023-11-14T22:13:20Z"
+      }
+      """
+    try Data(oldReceipt.utf8).write(to: file)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+
+    let receipt = try XCTUnwrap(RealSwitchReceiptStore(directoryURL: root).load(id: id))
+    XCTAssertEqual(receipt.outcome, .manualRecoveryRequired)
+    XCTAssertEqual(receipt.failureReason, .recoveryOperationFailed)
+    XCTAssertNil(receipt.targetFailurePhase)
+    XCTAssertNil(receipt.recoveryFailurePhase)
   }
 
   func testMockReaderReturnsUsageForEveryAccount() async throws {

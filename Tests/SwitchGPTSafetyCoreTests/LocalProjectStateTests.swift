@@ -730,6 +730,140 @@ final class LocalProjectStateTests: XCTestCase {
     }
   }
 
+  func testOwnerScopedLayoutVerifiesSharedProjectsWithoutWritingChatGPTState() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    let target = fixture.account(.b)
+    let targetHints = "electron-owner-value:thread-workspace-root-hints:\(target.owner)"
+    let targetAtoms = "electron-owner-atoms:\(target.owner)"
+    var state: [String: Any] = [
+      "electron-renderer-content-owner": source.owner,
+      "local-projects": ["source": project("source")],
+      "project-order": ["source"],
+      "pinned-project-ids": ["source"],
+      "thread-project-assignments": ["local-thread": ["projectKind": "local", "projectId": "source"]],
+      targetHints: ["local-thread": ["/target/initial"]],
+      targetAtoms: ["composer-prompt-drafts-v2": ["draft": "target-only draft"]],
+    ]
+    try fixture.writeState(state)
+    try service.captureActive(authenticationURL: source.authenticationURL)
+    try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: target.authenticationURL
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .missingVerification)
+    }
+
+    state[targetHints] = ["local-thread": ["/target/changed"]]
+    try fixture.writeState(state)
+    let afterExit = try Data(contentsOf: fixture.globalStateURL)
+    try service.synchronizeAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    try service.verifyAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: target.authenticationURL
+    )
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), afterExit)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.sharedStateURL.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.globalStateURL.appendingPathExtension("bak").path))
+
+    state["electron-renderer-content-owner"] = target.owner
+    state["local-projects"] = ["source": project("source"), "new": project("new")]
+    try fixture.writeState(state)
+    let afterTargetEdit = try Data(contentsOf: fixture.globalStateURL)
+    try service.recoverSource(sourceAuthenticationURL: source.authenticationURL)
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), afterTargetEdit)
+  }
+
+  func testOwnerScopedLayoutRejectsChangedProjectOrderBeforeHandoff() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    var state: [String: Any] = [
+      "electron-renderer-content-owner": source.owner,
+      "local-projects": ["one": project("one"), "two": project("two")],
+      "project-order": ["one", "two"],
+    ]
+    try fixture.writeState(state)
+    try fixture.verifyAll(.a, using: service)
+    state["project-order"] = ["two", "one"]
+    try fixture.writeState(state)
+    let edited = try Data(contentsOf: fixture.globalStateURL)
+
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: fixture.account(.b).authenticationURL
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .stateMismatch)
+    }
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), edited)
+  }
+
+  func testProjectDataWithNoRecognizedLayoutIsRejectedBeforeExit() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    let transaction = fixture.nextTransactionURL()
+    let service = fixture.synchronizer(transaction: transaction)
+    var state = try fixture.readState()
+    state.removeValue(forKey: "electron-account-renderer-state-v1")
+    try fixture.writeState(state)
+
+    XCTAssertThrowsError(try service.prepareForExit(
+      activeAuthenticationURL: fixture.account(.a).authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .unsupportedProjectLayout)
+    }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.sharedStateURL.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: transaction.path))
+  }
+
+  func testProjectlessLayoutDoesNotBypassAnExistingSwitchProof() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    let registryState = try fixture.readState()
+    let projectlessState: [String: Any] = [
+      "local-projects": [String: Any](), "project-order": [String](), "unrelated-global": true,
+    ]
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    let target = fixture.account(.b)
+    try fixture.writeState(projectlessState)
+    try fixture.verifyAll(.a, using: service)
+    try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: target.authenticationURL
+    )
+
+    try fixture.writeState(registryState)
+    try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    try fixture.writeState(projectlessState)
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .unsupportedProjectLayout)
+    }
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: target.authenticationURL
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .unsupportedProjectLayout)
+    }
+  }
+
   private func makeFixture(
     sourceProjects: [[String: Any]],
     targetProjects: [[String: Any]],
