@@ -39,6 +39,17 @@ final class DesktopIntegrationTests: XCTestCase {
 
   private var temporaryDirectories: [URL] = []
 
+  func testShutdownUpgradeStaysWithinConfirmedCompatibilityRisk() {
+    let confirmed = ChatGPTDesktopCompatibility.assessment(version: "26.1106.51428", build: "26605")
+    let upgrade = ChatGPTDesktopCompatibility.assessment(version: "26.1111.21308", build: "27194")
+    let validated = ChatGPTDesktopCompatibility.assessment(version: "26.810.52044", build: "6662")
+    XCTAssertTrue(confirmed.allowsUpgradeDuringShutdown(to: upgrade))
+    XCTAssertFalse(upgrade.allowsUpgradeDuringShutdown(to: confirmed))
+    XCTAssertFalse(confirmed.allowsUpgradeDuringShutdown(to: confirmed))
+    XCTAssertFalse(validated.allowsUpgradeDuringShutdown(to: upgrade))
+    XCTAssertFalse(confirmed.allowsUpgradeDuringShutdown(to: .unvalidated(version: nil, build: nil)))
+  }
+
   override func tearDownWithError() throws {
     for directory in temporaryDirectories {
       try? FileManager.default.removeItem(at: directory)
@@ -164,12 +175,16 @@ final class DesktopIntegrationTests: XCTestCase {
       identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
       authenticationInstaller: fixture.installer,
       projectStateSynchronizer: projects,
-      validateConfirmedTargetApplication: { throw DesktopIntegrationError.desktopDidNotLaunch }
+      checkTargetApplication: { _ in throw SafetyError.targetApplicationChanged }
     )
 
-    try adapter.stop()
-    XCTAssertThrowsError(try adapter.install(identity: fixture.identityB))
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("switch"))
+    let result = try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB)
 
+    XCTAssertEqual(result.failureReason, .targetApplicationChanged)
+    XCTAssertEqual(result.phase, .rolledBack)
+    XCTAssertEqual(result.targetLaunchAttempts, 0)
     XCTAssertEqual(projects.prepareCount, 0)
     XCTAssertEqual(try adapter.currentIdentity(), fixture.identityA)
     XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
@@ -185,7 +200,7 @@ final class DesktopIntegrationTests: XCTestCase {
       processController: process,
       identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
       authenticationInstaller: fixture.installer,
-      validateConfirmedTargetApplication: {
+      checkTargetApplication: { _ in
         if applicationChanged { throw DesktopIntegrationError.desktopDidNotLaunch }
       }
     )
@@ -200,6 +215,44 @@ final class DesktopIntegrationTests: XCTestCase {
     try adapter.start()
     XCTAssertEqual(try adapter.currentIdentity(), fixture.identityA)
     XCTAssertEqual(process.startCount, 1)
+  }
+
+  func testUpgradeIsPinnedAfterExitBeforeProjectsAndCredentialHandoff() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    var pinCaptured = false
+    var pinChecks = 0
+    let projects = FixtureProjectStateSynchronizer(prepare: {
+      XCTAssertTrue(pinCaptured)
+      XCTAssertEqual(pinChecks, 1)
+    })
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: projects,
+      checkTargetApplication: { check in
+        XCTAssertFalse(process.running)
+        switch check {
+        case .afterExit:
+          XCTAssertFalse(pinCaptured)
+          pinCaptured = true
+        case .pinnedBuild:
+          XCTAssertTrue(pinCaptured)
+          pinChecks += 1
+        }
+      }
+    )
+
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("switch"))
+    let result = try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB)
+    XCTAssertEqual(result.phase, .committed)
+    XCTAssertEqual(try adapter.currentIdentity(), fixture.identityB)
+    XCTAssertEqual(process.startCount, 1)
+    XCTAssertEqual(pinChecks, 2)
   }
 
   func testSourceCaptureFailureRejectsBeforeDesktopStops() throws {

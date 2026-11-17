@@ -10,6 +10,7 @@ public enum RealSwitchReceiptOutcome: String, Codable, Equatable, Sendable {
 
 public enum RealSwitchReceiptFailureReason: String, Codable, Equatable, Sendable {
   case targetOperationFailed
+  case targetApplicationChanged
   case targetIdentityMismatch
   case interrupted
   case recoveryOperationFailed

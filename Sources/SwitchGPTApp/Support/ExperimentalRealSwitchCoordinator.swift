@@ -259,6 +259,7 @@ enum ExperimentalRealSwitchCoordinator {
         base: baseIdentityReader,
         targetIdentity: plan.targetIdentity
       ) : baseIdentityReader
+    var targetApplication = plan.targetApplication
     let adapter = try RealChatGPTDesktopAdapter(
       sourceIdentity: plan.sourceIdentity,
       profiles: [
@@ -280,8 +281,15 @@ enum ExperimentalRealSwitchCoordinator {
       activeAuthenticationURL: activeAuthenticationURL,
       managedAuthenticationURLs: managedAuthenticationURLs,
       preserveDepartingCredentialsAfterExit: true,
-      validateConfirmedTargetApplication: {
-        try validateConfirmedTargetApplication(plan.targetApplication)
+      checkTargetApplication: { check in
+        let installed = try validateTargetApplication()
+        guard installed != targetApplication else { return }
+        // Pin a verified upgrade while the desktop is stopped, before checking the
+        // on-disk projects. Require that exact build through credential handoff.
+        guard case .afterExit = check,
+          targetApplication.compatibility.allowsUpgradeDuringShutdown(to: installed.compatibility)
+        else { throw SafetyError.targetApplicationChanged }
+        targetApplication = installed
       }
     )
     let hostEvidence = try SystemSupervisorHostEvidenceCollector.collect(

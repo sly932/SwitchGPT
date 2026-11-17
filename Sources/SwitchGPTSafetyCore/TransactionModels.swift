@@ -58,6 +58,7 @@ public enum TransactionPhase: String, Codable, Sendable {
 
 public enum FailureReason: String, Codable, Sendable {
   case targetOperationFailed
+  case targetApplicationChanged
   case targetIdentityMismatch
   case interrupted
   case recoveryOperationFailed
@@ -153,6 +154,7 @@ public struct SimulatedProcessExit: Error, Equatable, Sendable {
 public enum SafetyError: Error, Equatable, Sendable {
   case sourceAndTargetMatch
   case sourceIdentityMismatch
+  case targetApplicationChanged
   case existingTransaction
   case missingTransaction
   case lockUnavailable
