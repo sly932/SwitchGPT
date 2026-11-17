@@ -82,7 +82,8 @@ public final class SwitchTransactionEngine {
     } catch let processExit as SimulatedProcessExit {
       throw processExit
     } catch {
-      record.failureReason = .targetOperationFailed
+      record.failureReason = error as? SafetyError == .targetApplicationChanged
+        ? .targetApplicationChanged : .targetOperationFailed
       record.targetFailurePhase = record.phase
     }
     return try rollback(record)

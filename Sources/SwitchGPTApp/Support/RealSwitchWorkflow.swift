@@ -88,16 +88,18 @@ enum RealSwitchWorkflow {
   }
 
   private static func failureMessage(_ receipt: RealSwitchReceipt) -> String {
-    let switchMessage = switch receipt.targetFailurePhase {
-    case .stoppingForTarget:
+    let switchMessage = switch (receipt.failureReason, receipt.targetFailurePhase) {
+    case (.targetApplicationChanged, _):
+      L10n.string("ChatGPT changed during the switch. Review and confirm the switch again.")
+    case (_, .stoppingForTarget):
       L10n.string("The switch stopped while waiting for ChatGPT to quit.")
-    case .installingTarget:
+    case (_, .installingTarget):
       L10n.string("The switch stopped while preparing the target account.")
-    case .startingTarget:
+    case (_, .startingTarget):
       L10n.string("The switch stopped while starting ChatGPT for the target account.")
-    case .verifyingTarget:
+    case (_, .verifyingTarget):
       L10n.string("The switch stopped while verifying the target account.")
-    case .committed:
+    case (_, .committed):
       L10n.string("The switch stopped while saving its result.")
     default:
       L10n.string("The account switch stopped.")
