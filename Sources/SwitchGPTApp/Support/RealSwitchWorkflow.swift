@@ -45,7 +45,7 @@ enum RealSwitchWorkflow {
       let result = try await Task.detached(priority: .userInitiated) {
         try ExperimentalRealSwitchCoordinator.perform(plan, accounts: accounts)
       }.value
-      switch result.outcome {
+      switch result.receipt.outcome {
       case .committed:
         store.completeRealSwitch(
           to: plan.targetAccount.id,
@@ -56,16 +56,9 @@ enum RealSwitchWorkflow {
           to: plan.targetAccount.id,
           receiptRecorded: result.receiptRecorded
         )
-      case .rolledBack:
+      case .rolledBack, .manualRecoveryRequired:
         store.failRealSwitch(
-          message:
-            L10n.string("Switch failed safely; the original account was restored and ChatGPT was relaunched once.")
-            + receiptSuffix(recorded: result.receiptRecorded)
-        )
-      case .manualRecoveryRequired:
-        store.failRealSwitch(
-          message:
-            L10n.string("Automatic recovery stopped after its single launch budget. Manual recovery is required.")
+          message: failureMessage(result.receipt)
             + receiptSuffix(recorded: result.receiptRecorded)
         )
       }
@@ -75,7 +68,10 @@ enum RealSwitchWorkflow {
   }
 
   static func userMessage(for error: Error) -> String {
-    if error is LocalProjectStateSynchronizationError {
+    if let error = error as? LocalProjectStateSynchronizationError {
+      if error == .unsupportedProjectLayout {
+        return L10n.string("SwitchGPT could not verify the local project layout. The switch was blocked before quitting ChatGPT.")
+      }
       return L10n.string("Local project synchronization or verification failed. The account switch was blocked.")
     }
     if let error = error as? ExperimentalRealSwitchError,
@@ -89,6 +85,47 @@ enum RealSwitchWorkflow {
       return message
     }
     return L10n.string("The experimental switch was blocked by a safety check; ChatGPT was not changed.")
+  }
+
+  private static func failureMessage(_ receipt: RealSwitchReceipt) -> String {
+    let switchMessage = switch receipt.targetFailurePhase {
+    case .stoppingForTarget:
+      L10n.string("The switch stopped while waiting for ChatGPT to quit.")
+    case .installingTarget:
+      L10n.string("The switch stopped while preparing the target account.")
+    case .startingTarget:
+      L10n.string("The switch stopped while starting ChatGPT for the target account.")
+    case .verifyingTarget:
+      L10n.string("The switch stopped while verifying the target account.")
+    case .committed:
+      L10n.string("The switch stopped while saving its result.")
+    default:
+      L10n.string("The account switch stopped.")
+    }
+
+    if receipt.outcome == .rolledBack {
+      return switchMessage + L10n.string(" The original account was restored.")
+    }
+    if receipt.failureReason == .recoveryLaunchBudgetExhausted, receipt.rollbackLaunchAttempts == 1 {
+      return switchMessage + " "
+        + L10n.string("Automatic recovery stopped after its single launch budget. Manual recovery is required.")
+    }
+
+    let recoveryMessage = switch receipt.recoveryFailurePhase {
+    case .rollbackStopping:
+      L10n.string(" Recovery stopped while waiting for ChatGPT to quit.")
+    case .rollbackRestoring:
+      L10n.string(" Recovery stopped while restoring the original account.")
+    case .rollbackStarting:
+      L10n.string(" Recovery stopped while reopening ChatGPT.")
+    case .rollbackVerifying:
+      L10n.string(" Recovery stopped while verifying the original account.")
+    case .rolledBack:
+      L10n.string(" Recovery stopped while saving its result.")
+    default:
+      ""
+    }
+    return switchMessage + recoveryMessage + L10n.string(" Manual recovery is required.")
   }
 
   private static func receiptSuffix(recorded: Bool) -> String {

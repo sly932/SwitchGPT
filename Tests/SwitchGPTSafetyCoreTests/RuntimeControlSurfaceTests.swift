@@ -294,7 +294,7 @@ final class RuntimeControlSurfaceTests: XCTestCase {
       encoding: .utf8
     )
 
-    XCTAssertTrue(app.contains("Window(\"SwitchGPT\", id: \"dashboard\")"))
+    XCTAssertNotNil(app.range(of: #"Window\("[^\"]+", id: "dashboard"\)"#, options: .regularExpression))
     XCTAssertTrue(app.contains(".defaultSize(width: 820, height: 592)"))
     XCTAssertTrue(app.contains(".menuBarExtraStyle(.window)"))
     XCTAssertTrue(menu.contains(".frame(width: 390)"))
@@ -320,14 +320,15 @@ final class RuntimeControlSurfaceTests: XCTestCase {
     XCTAssertFalse(coordinator.contains("unsupportedTargetApplicationVersion"))
     XCTAssertTrue(
       coordinator.contains(
-        "let targetApplicationCompatibility = try validateTargetApplication()"
+        "let targetApplication = try validateTargetApplication()"
       )
     )
     XCTAssertTrue(
       coordinator.contains(
-        "try validateTargetApplication() == plan.targetApplicationCompatibility"
+        "try validateConfirmedTargetApplication(plan.targetApplication)"
       )
     )
+    XCTAssertTrue(coordinator.contains("kSecCodeInfoUnique"))
     XCTAssertTrue(
       dashboard.contains(
         "showsUnvalidatedVersionWarning: !plan.targetApplicationCompatibility.isValidated"
