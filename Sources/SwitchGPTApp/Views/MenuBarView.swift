@@ -3,6 +3,7 @@ import SwitchGPTAppCore
 
 struct MenuBarLabel: View {
   let store: SwitchGPTAppStore
+  let registerOpenDashboard: (@escaping () -> Void) -> Void
 
   @Environment(\.openWindow) private var openWindow
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
@@ -14,9 +15,11 @@ struct MenuBarLabel: View {
       .environment(\.locale, (AppLanguage(rawValue: languageRawValue) ?? .system).locale)
       .accessibilityLabel(accessibilityQuotaLabel)
       .task {
+        let openDashboard = { [openWindow] in openWindow(id: "dashboard") }
+        registerOpenDashboard(openDashboard)
         guard !didRequestDashboard else { return }
         didRequestDashboard = true
-        openWindow(id: "dashboard")
+        openDashboard()
       }
       .task {
         while !Task.isCancelled {

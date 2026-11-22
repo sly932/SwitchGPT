@@ -7,6 +7,8 @@ final class SwitchGPTAppDelegate: NSObject, NSApplicationDelegate {
   private let logger = LoggerBridge.lifecycle
   private var instanceLockFD: Int32 = -1
 
+  var openDashboard: (() -> Void)?
+
   func applicationWillFinishLaunching(_ notification: Notification) {
     guard acquireInstanceLock() else {
       if let bundleIdentifier = Bundle.main.bundleIdentifier {
@@ -25,6 +27,12 @@ final class SwitchGPTAppDelegate: NSObject, NSApplicationDelegate {
     NSApp.activate(ignoringOtherApps: true)
     ExperimentalRealSwitchCoordinator.projectStateMonitor.start()
     logger.info("SwitchGPT UI launched with local project-state monitoring")
+  }
+
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+    guard !hasVisibleWindows, let openDashboard else { return true }
+    openDashboard()
+    return false
   }
 
   func applicationWillTerminate(_ notification: Notification) {
@@ -119,8 +127,10 @@ struct SwitchGPTApp: App {
         .id(languageRawValue)
         .environment(\.locale, appLocale)
     } label: {
-      MenuBarLabel(store: store)
-        .environment(\.locale, appLocale)
+      MenuBarLabel(store: store) { openDashboard in
+        appDelegate.openDashboard = openDashboard
+      }
+      .environment(\.locale, appLocale)
     }
     .menuBarExtraStyle(.window)
   }
