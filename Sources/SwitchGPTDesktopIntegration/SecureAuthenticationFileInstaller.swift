@@ -69,8 +69,8 @@ public final class SecureAuthenticationFileInstaller: AuthenticationStateInstall
     try replacePrivateFile(data, at: destination)
   }
 
-  /// Updates only an existing profile belonging to the expected active account.
-  /// Identity is checked on the exact bytes that will be written, before any replacement.
+  /// Updates only an existing profile for the same user and workspace.
+  /// Ownership is checked on the exact bytes that will be written.
   public static func synchronizePrivateAuthenticationFile(
     from sourceURL: URL,
     to destinationURL: URL,
@@ -80,20 +80,84 @@ public final class SecureAuthenticationFileInstaller: AuthenticationStateInstall
     let destination = destinationURL.standardizedFileURL
     let data = try readPrivateAuthenticationFile(at: source)
     let previous = try readPrivateAuthenticationFile(at: destination)
-    guard try PinnedAuthenticationIdentityReader.identity(fromAuthenticationData: data)
-      == expectedIdentity,
-      try PinnedAuthenticationIdentityReader.identity(fromAuthenticationData: previous)
-        == expectedIdentity
+    guard try PinnedAuthenticationIdentityReader.identityHashes(fromAuthenticationData: data)
+      .contains(expectedIdentity.rawValue),
+      try PinnedAuthenticationIdentityReader.identityHashes(fromAuthenticationData: previous)
+        .contains(expectedIdentity.rawValue)
     else {
       throw DesktopIntegrationError.identityMismatch
     }
     guard source != destination, data != previous else { return }
+    let active = try AuthenticationOwner(data: data)
+    let archived = try AuthenticationOwner(data: previous)
+    guard active.userID == archived.userID, active.workspaceID == archived.workspaceID else {
+      throw DesktopIntegrationError.identityMismatch
+    }
+    if !active.hasDistinctLogin(from: archived), let activeRefresh = active.lastRefresh,
+      let archivedRefresh = archived.lastRefresh, activeRefresh < archivedRefresh
+    {
+      return
+    }
     try preparePrivateDirectory(at: destination.deletingLastPathComponent())
     try replacePrivateFile(data, at: destination)
   }
 
+  private struct AuthenticationOwner {
+    let userID: String
+    let workspaceID: String
+    let loginOwnerID: String?
+    let refreshToken: String?
+    let lastRefresh: Date?
+
+    init(data: Data) throws {
+      guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let tokens = object["tokens"] as? [String: Any]
+      else { throw DesktopIntegrationError.invalidAuthenticationPayload }
+      let access = Self.claims(in: tokens["access_token"])
+      let id = Self.claims(in: tokens["id_token"])
+      let accessUser = Self.user(in: access)
+      let idUser = Self.user(in: id)
+      let tokenWorkspace = tokens["account_id"] as? String
+      let accessWorkspace = access?["chatgpt_account_id"] as? String
+      guard accessUser == nil || idUser == nil || accessUser == idUser,
+        tokenWorkspace == nil || accessWorkspace == nil || tokenWorkspace == accessWorkspace,
+        let user = accessUser ?? idUser, !user.isEmpty,
+        let workspace = tokenWorkspace ?? accessWorkspace ?? id?["chatgpt_account_id"] as? String,
+        !workspace.isEmpty
+      else { throw DesktopIntegrationError.identityMismatch }
+
+      userID = user
+      workspaceID = workspace
+      loginOwnerID = tokens["login_owner_id"] as? String
+      refreshToken = tokens["refresh_token"] as? String
+      if let lastRefreshValue = object["last_refresh"] as? String {
+        lastRefresh = (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+          .parse(lastRefreshValue)) ?? (try? Date.ISO8601FormatStyle().parse(lastRefreshValue))
+      } else {
+        lastRefresh = nil
+      }
+    }
+
+    func hasDistinctLogin(from other: Self) -> Bool {
+      guard let loginOwnerID, !loginOwnerID.isEmpty,
+        let otherLoginOwnerID = other.loginOwnerID, !otherLoginOwnerID.isEmpty,
+        loginOwnerID != otherLoginOwnerID
+      else { return false }
+      return refreshToken?.isEmpty != false || refreshToken != other.refreshToken
+    }
+
+    private static func claims(in token: Any?) -> [String: Any]? {
+      PinnedAuthenticationIdentityReader.claims(fromJWT: token as? String)?["https://api.openai.com/auth"]
+        as? [String: Any]
+    }
+
+    private static func user(in claims: [String: Any]?) -> String? {
+      (claims?["chatgpt_user_id"] as? String) ?? (claims?["user_id"] as? String)
+    }
+  }
+
   public static func readPrivateAuthenticationFile(at url: URL) throws -> Data {
-    let descriptor = url.path.withCString { open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW) }
+    let descriptor = url.path.withCString { open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK) }
     guard descriptor >= 0 else { throw DesktopIntegrationError.invalidAuthenticationFile }
     defer { close(descriptor) }
 

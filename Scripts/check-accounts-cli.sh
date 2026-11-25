@@ -12,9 +12,11 @@ from pathlib import Path
 import sys
 source = Path('Tests/SwitchGPTSafetyCoreTests/AccountReportTests.swift').read_text()
 app_tests = Path('Tests/SwitchGPTSafetyCoreTests/AppCoreTests.swift').read_text()
+details_tests = Path('Tests/SwitchGPTSafetyCoreTests/AccountDetailsReliabilityTests.swift').read_text()
 start = app_tests.index('  func testCodexQuotaReaderKeepsHealthyAccountWhenAnotherAccountFails()')
 end = app_tests.index('  func testTokenActivityDecoderPreservesUnknownFields()', start)
 source += '\nclass ReaderRegressionTests: XCTestCase {\n' + app_tests[start:end] + '\n}\n'
+source += details_tests[details_tests.index('func fixtureChatGPTAuthentication('):]
 source = source.replace('import XCTest', '''import Foundation
 class XCTestCase {}
 func XCTAssertEqual<T: Equatable>(_ actual: T, _ expected: T) {
@@ -79,6 +81,7 @@ with tempfile.TemporaryDirectory(prefix='switchgpt-cli-contract-') as directory:
     assert state.read_bytes() == original
     invalid = run('quota', '--timeout', '0')
     assert invalid.returncode == 2 and not invalid.stdout
+    assert run('refresh').returncode == 2, 'refresh must reject alternate state files'
     state.chmod(0o644)
     insecure = run('quota', '--cached')
     assert insecure.returncode == 1 and not insecure.stdout

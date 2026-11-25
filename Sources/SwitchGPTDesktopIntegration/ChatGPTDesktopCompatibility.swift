@@ -24,6 +24,20 @@ public enum ChatGPTDesktopCompatibilityAssessment: Equatable, Sendable {
     }
     return false
   }
+
+  public func allowsUpgradeDuringShutdown(to installed: Self) -> Bool {
+    guard !isValidated || installed.isValidated,
+      let confirmedBuild = buildNumber, let installedBuild = installed.buildNumber
+    else { return false }
+    return installedBuild > confirmedBuild
+  }
+
+  private var buildNumber: UInt64? {
+    switch self {
+    case .validated(let version): UInt64(version.build)
+    case .unvalidated(_, let build): build.flatMap { UInt64($0) }
+    }
+  }
 }
 
 public enum ChatGPTDesktopCompatibility {

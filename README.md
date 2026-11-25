@@ -91,8 +91,8 @@ switchgpt quota --cached
 ```
 
 默认读取 `~/Library/Application Support/SwitchGPT-sly/preview-state.json` 中所有已添加账号，
-每次实时查询，不要求 Dashboard 正在运行。`--cached` 只读本地快照；CLI 不写回应用数据，
-也不切换桌面账号或同步当前桌面凭证。若账号在桌面重新登录后仍查询失败，先在应用中刷新以同步凭证。
+每次实时查询，不要求 Dashboard 正在运行。`--cached` 只读本地快照。`quota` 和 `usage`
+只返回查询结果。若账号在桌面重新登录后仍查询失败，先在应用中刷新以同步凭证。
 其他数据文件可用 `--state-file /绝对路径/preview-state.json` 指定；文件必须保持私有权限 `600`。
 没有保存文件时返回空数组；文件损坏或权限不安全时整条命令失败。
 
@@ -132,6 +132,20 @@ switchgpt usage --cached | jq '{source, totalCount, errorCount, partialCount}'
 `/Applications/switchgpt-sly.app/Contents/Helpers/switchgpt quota`。
 本 CLI 随本地新构建交付，旧的公开 `0.2.3` 下载包不包含此命令。
 
+### 定时刷新用量与登录凭据
+
+安装当前本地构建的 `/Applications/switchgpt-sly.app` 后，可主动启用用户级 LaunchAgent：
+
+```sh
+./script/scheduled-usage-refresh.sh install
+./script/scheduled-usage-refresh.sh status
+./script/scheduled-usage-refresh.sh uninstall
+```
+
+macOS 在你保持登录期间按本地时间于每天 **09:00** 运行一次。已有早晚各一次的任务，或仍指向 `~/Applications` 的旧任务，可再次执行 `install` 更新。退出 SwitchGPT 后仍可刷新，睡眠期间错过的触发会在唤醒后合并执行，关机期间错过的触发会跳过。用量读取成功后保存到本地，供 Dashboard 显示。可手动运行 `switchgpt refresh` 执行同一刷新并查看用量和续期的成功及失败数量。`status` 显示最近一次的退出状态，`1` 表示任务、用量读取或尝试的凭据续期有失败，已成功读取的用量仍会保存。若 macOS 禁用了此任务，可在系统设置的登录项中检查后台运行权限。
+
+对于能确认已切走、且登录凭据独立的 SwitchGPT 托管账号，后台任务会在 Access Token 剩余有效期不超过 **3 天**时请求 Codex 续期，包括已经过期的情形。Codex 将新凭据写入各自的私有档案。读不到到期时间时，使用 Codex 自身的续期判断。当前桌面账号由桌面端续期，外部档案和普通用量查询使用现有的 Access Token。发起切换时，如果目标账号已过期且普通查询失败，SwitchGPT 可以对符合条件的托管档案尝试续期一次。若凭据已撤销，可通过官方登录流程重新添加或更新该账号。
+
 ### 应用更新
 
 SwitchGPT 每 24 小时最多检查一次官方 GitHub 仓库的最新正式 Release。只有版本号高于当前应用时，Dashboard 左下角才会出现更新提醒；测试版和草稿不会触发提醒。点击提醒会打开官方 Release 页面，关闭提醒则会将该版本延后 7 天。自动检查失败或离线时不会干扰额度刷新和账号切换。
@@ -147,11 +161,13 @@ SwitchGPT 每 24 小时最多检查一次官方 GitHub 仓库的最新正式 Rel
 
 取消确认不会开始切换。不要在重要任务运行期间尝试，也不要连续重复点击。ChatGPT Desktop 版本变化时，SwitchGPT 可能把当前版本标为未验证并在确认流程中提示风险。
 
-SwitchGPT 启动后以已验证的当前账号初始化本地项目总状态，并在后台观察当前账号已落盘的项目变化。新增、删除、目录调整、会话移动、置顶和排序都更新这份总状态，其他账号的旧副本不能反向合并进来。当前账号首次切换前发生的删除和移出项目也会保留。
+对于按账号存放本地项目的旧版 ChatGPT，SwitchGPT 启动后以已验证的当前账号初始化本地项目总状态，并在后台观察当前账号已落盘的项目变化。新增、删除、目录调整、会话移动、置顶和排序都更新这份总状态，其他账号的旧副本不能反向合并进来。当前账号首次切换前发生的删除和移出项目也会保留。
 
 确认切换后，SwitchGPT 收取当前账号最新状态，备份并固定总状态版本，然后等待 ChatGPT 正常退出。退出后先核验源账号最终保存的共享项目状态是否仍与该版本一致。一致时再把固定版本写入全部已管理账号，重新读取并核验全部副本，最后才替换登录信息。其他账号的区域缺失或保留旧版时，会在源核验通过后由总状态补齐。账号身份无法核验、源账号或总状态发生变化、写入失败及最终核验不一致，都会阻止目标切换。账号身份、未发送草稿和云端项目保留各自账号的状态。
 
 总状态保存在 `~/Library/Application Support/SwitchGPT-sly/LocalProjects/shared-state-v1.json`，初始化、状态变化及切换前后的项目快照保存在同目录的 `Backups/` 中。当前 ChatGPT 退出时会保存内存缓存，因此全账号写入安排在退出之后。若源账号的最终保存与已固定版本不同，会保留原始文件和总状态，取消目标切换并重开原账号。后台采集也会暂时拒绝这份未核验的差异，直至源账号与可信总状态重新一致。
+
+对于由 ChatGPT 在账号间共享本地项目的新版格式，SwitchGPT 在退出前后核对当前账号和共享项目快照，项目文件保持由 ChatGPT 管理。草稿、路径提示和按账号隔离的侧栏偏好继续归各自账号。无法识别项目格式时，SwitchGPT 会在退出 ChatGPT 前阻止切换。如果 ChatGPT 在退出时装好更新，SwitchGPT 会重新验证官方签名。新版在用户已确认的兼容范围内时，SwitchGPT 锁定新版后继续核验项目和凭证。锁定后应用再次变化时，需要重新确认切换。
 
 ## 卸载和清理本地账号
 

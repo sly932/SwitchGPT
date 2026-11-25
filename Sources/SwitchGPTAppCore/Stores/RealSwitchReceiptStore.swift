@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import SwitchGPTSafetyCore
 
 public enum RealSwitchReceiptOutcome: String, Codable, Equatable, Sendable {
   case committed
@@ -9,6 +10,7 @@ public enum RealSwitchReceiptOutcome: String, Codable, Equatable, Sendable {
 
 public enum RealSwitchReceiptFailureReason: String, Codable, Equatable, Sendable {
   case targetOperationFailed
+  case targetApplicationChanged
   case targetIdentityMismatch
   case interrupted
   case recoveryOperationFailed
@@ -30,6 +32,8 @@ public struct RealSwitchReceipt: Codable, Equatable, Sendable {
   public let rollbackLaunchAttempts: Int
   public let targetWasInstalled: Bool
   public let failureReason: RealSwitchReceiptFailureReason?
+  public let targetFailurePhase: TransactionPhase?
+  public let recoveryFailurePhase: TransactionPhase?
   public let transactionCreatedAt: Date
   public let recordedAt: Date
 
@@ -43,6 +47,8 @@ public struct RealSwitchReceipt: Codable, Equatable, Sendable {
     rollbackLaunchAttempts: Int,
     targetWasInstalled: Bool,
     failureReason: RealSwitchReceiptFailureReason?,
+    targetFailurePhase: TransactionPhase? = nil,
+    recoveryFailurePhase: TransactionPhase? = nil,
     transactionCreatedAt: Date,
     recordedAt: Date = Date()
   ) {
@@ -56,6 +62,8 @@ public struct RealSwitchReceipt: Codable, Equatable, Sendable {
     self.rollbackLaunchAttempts = rollbackLaunchAttempts
     self.targetWasInstalled = targetWasInstalled
     self.failureReason = failureReason
+    self.targetFailurePhase = targetFailurePhase
+    self.recoveryFailurePhase = recoveryFailurePhase
     self.transactionCreatedAt = transactionCreatedAt
     self.recordedAt = recordedAt
   }

@@ -24,6 +24,7 @@ struct DashboardView: View {
   @AppStorage(AppLanguage.storageKey) private var languageRawValue = AppLanguage.system.rawValue
 
   @Environment(\.openURL) private var openURL
+  @Environment(\.scenePhase) private var scenePhase
 
   private var selectedAccount: AccountRecord? {
     if let selectedAccountID,
@@ -107,6 +108,7 @@ struct DashboardView: View {
       }
     }
     .task {
+      store.reloadBackgroundUsage()
       await store.bootstrapCurrentAccountIfNeeded()
       await store.preserveActiveAccountForSwitchingIfNeeded()
       await store.reconcileCurrentAccountWithDesktop()
@@ -126,6 +128,9 @@ struct DashboardView: View {
     }
     .onChange(of: store.currentAccountID) { _, newValue in
       if section == .account { selectedAccountID = newValue }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active { store.reloadBackgroundUsage() }
     }
     .onDisappear {
       accountSignInTask?.cancel()

@@ -141,16 +141,25 @@ public struct CodexManagedAccountOnboarder: ManagedAccountOnboarding, Sendable {
   }
 
   public func discardManagedAccount(at path: String) throws {
-    let candidate = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
-    let root = accountsRootURL.standardizedFileURL.resolvingSymlinksInPath()
-    let resolved = candidate.resolvingSymlinksInPath()
-    guard resolved.deletingLastPathComponent() == root,
-      UUID(uuidString: resolved.lastPathComponent) != nil
+    guard let authenticationURL = try managedAuthenticationURL(for: path)
     else {
       throw ManagedAccountOnboardingError.insecureStorage
     }
-    try Self.validatePrivateDirectory(candidate)
-    try FileManager.default.removeItem(at: candidate)
+    try FileManager.default.removeItem(at: authenticationURL.deletingLastPathComponent())
+  }
+
+  /// Returns nil for external profiles and throws if a managed path is unsafe.
+  public func managedAuthenticationURL(for path: String) throws -> URL? {
+    let directory = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    guard directory.deletingLastPathComponent().path == accountsRootURL.path,
+      UUID(uuidString: directory.lastPathComponent) != nil
+    else { return nil }
+    guard directory.resolvingSymlinksInPath().path == directory.path else {
+      throw ManagedAccountOnboardingError.insecureStorage
+    }
+    try Self.validatePrivateDirectory(accountsRootURL)
+    try Self.validatePrivateDirectory(directory)
+    return directory.appendingPathComponent("auth.json")
   }
 
   private func createPrivateAccountDirectory() throws -> URL {

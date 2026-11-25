@@ -52,6 +52,7 @@ final class AppCoreTests: XCTestCase {
       rollbackLaunchAttempts: 1,
       targetWasInstalled: true,
       failureReason: .targetIdentityMismatch,
+      targetFailurePhase: .verifyingTarget,
       transactionCreatedAt: Date(timeIntervalSince1970: 1_700_000_000),
       recordedAt: Date(timeIntervalSince1970: 1_700_000_010)
     )
@@ -94,6 +95,43 @@ final class AppCoreTests: XCTestCase {
     }
   }
 
+  func testRealSwitchReceiptStoreLoadsLegacyV1ReceiptWithoutFailurePhases() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("switchgpt-legacy-receipt-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(
+      at: root,
+      withIntermediateDirectories: false,
+      attributes: [.posixPermissions: 0o700]
+    )
+    let id = try XCTUnwrap(UUID(uuidString: "11111111-1111-4111-8111-111111111111"))
+    let file = root.appendingPathComponent(id.uuidString.lowercased() + ".json")
+    let oldReceipt = """
+      {
+        "failureReason": "recoveryOperationFailed",
+        "finalIdentityHash": "012345abcdef",
+        "id": "11111111-1111-4111-8111-111111111111",
+        "outcome": "manualRecoveryRequired",
+        "recordedAt": "2023-11-14T22:13:30Z",
+        "rollbackLaunchAttempts": 0,
+        "schemaVersion": 1,
+        "sourceIdentityHash": "012345abcdef",
+        "targetIdentityHash": "fedcba543210",
+        "targetLaunchAttempts": 0,
+        "targetWasInstalled": false,
+        "transactionCreatedAt": "2023-11-14T22:13:20Z"
+      }
+      """
+    try Data(oldReceipt.utf8).write(to: file)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+
+    let receipt = try XCTUnwrap(RealSwitchReceiptStore(directoryURL: root).load(id: id))
+    XCTAssertEqual(receipt.outcome, .manualRecoveryRequired)
+    XCTAssertEqual(receipt.failureReason, .recoveryOperationFailed)
+    XCTAssertNil(receipt.targetFailurePhase)
+    XCTAssertNil(receipt.recoveryFailurePhase)
+  }
+
   func testMockReaderReturnsUsageForEveryAccount() async throws {
     let accounts = MockAccountCatalog.accounts(now: Date(timeIntervalSince1970: 1_700_000_000))
     let usage = try await MockQuotaReader().fetchUsage(for: accounts)
@@ -117,7 +155,7 @@ final class AppCoreTests: XCTestCase {
     let binaryURL = root.appendingPathComponent("fake-codex")
     let script = #"""
       #!/bin/bash
-      marker="$(cat "$CODEX_HOME/auth.json")"
+      [[ ! -e "$CODEX_HOME/auth.json" ]] || exit 1
       request_count=0
       while IFS= read -r line; do
         if [[ "$line" != *'"id":'* ]]; then
@@ -128,23 +166,18 @@ final class AppCoreTests: XCTestCase {
         if [[ "$request_count" -eq 1 ]]; then
           printf '{"id":%s,"result":{}}\n' "$request_id"
         elif [[ "$request_count" -eq 2 ]]; then
-          if [[ "$marker" == *failure* ]]; then
-            if [[ "$marker" == *usage-failure* ]]; then
-              email="usage-failure@example.com"
-            else
-              email="failure@example.com"
-            fi
-          else
-            email="success@example.com"
-          fi
-          printf '{"id":%s,"result":{"account":{"email":"%s","planType":"plus"}}}\n' "$request_id" "$email"
+          marker="$(printf '%s' "$line" | sed -n 's/.*"chatgptAccountId":"\([^"]*\)".*/\1/p')"
+          [[ -n "$marker" ]] || exit 1
+          printf '{"id":%s,"result":{"type":"chatgptAuthTokens"}}\n' "$request_id"
         elif [[ "$request_count" -eq 3 ]]; then
+          printf '{"id":%s,"result":{"account":{"type":"chatgpt","email":"%s@example.com","planType":"plus"}}}\n' "$request_id" "$marker"
+        elif [[ "$request_count" -eq 4 ]]; then
           if [[ "$marker" == failure ]]; then
             printf '{"id":%s,"error":{"code":-32603,"message":"expired"}}\n' "$request_id"
           else
             printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":1900000000},"secondary":{"usedPercent":34,"windowDurationMins":10080,"resetsAt":1900500000}}}}\n' "$request_id"
           fi
-        elif [[ "$request_count" -eq 4 ]]; then
+        elif [[ "$request_count" -eq 5 ]]; then
           if [[ "$marker" == *usage-failure* ]]; then
             printf '{"id":%s,"error":{"code":-32601,"message":"method unavailable"}}\n' "$request_id"
           else
@@ -168,7 +201,8 @@ final class AppCoreTests: XCTestCase {
         attributes: [.posixPermissions: 0o700]
       )
       let authURL = home.appendingPathComponent("auth.json")
-      try Data(marker.utf8).write(to: authURL)
+      try fixtureChatGPTAuthentication(email: "\(marker)@example.com", accountID: marker)
+        .write(to: authURL)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: authURL.path)
       return AccountRecord(
         id: AccountID(id),
@@ -734,6 +768,35 @@ final class AppCoreTests: XCTestCase {
 
     XCTAssertThrowsError(try CodexRateLimitDecoder.decodeUsage(from: payload)) { error in
       XCTAssertEqual(error as? QuotaReadingError, .missingRateLimit)
+    }
+  }
+
+  func testRateLimitDecoderHandlesNonfiniteAndOutOfRangeNumbers() throws {
+    func payload(
+      used: Any, reset: Any, resetCreditCount: Any = "9223372036854775808"
+    ) throws -> Data {
+      try JSONSerialization.data(withJSONObject: [
+        "primary": ["usedPercent": used, "resetsAt": reset],
+        "rateLimitResetCredits": ["availableCount": resetCreditCount],
+      ])
+    }
+
+    for invalidValue in ["NaN", "Infinity", "-Infinity"] {
+      XCTAssertThrowsError(try CodexRateLimitDecoder.decodeUsage(
+        from: payload(used: invalidValue, reset: 1_787_059_702)))
+      XCTAssertThrowsError(try CodexRateLimitDecoder.decodeUsage(
+        from: payload(used: 20, reset: invalidValue)))
+    }
+    XCTAssertThrowsError(try CodexRateLimitDecoder.decodeUsage(
+      from: payload(used: true, reset: 1_787_059_702)))
+    let usage = try CodexRateLimitDecoder.decodeUsage(
+      from: payload(used: "1e200", reset: 1_787_059_702))
+    XCTAssertEqual(usage.weekly.usedPercent, 100)
+    XCTAssertNil(usage.resetCredits)
+    for largestCount in [Int.max as Any, String(Int.max)] {
+      let usage = try CodexRateLimitDecoder.decodeUsage(
+        from: payload(used: 20, reset: 1_787_059_702, resetCreditCount: largestCount))
+      XCTAssertEqual(usage.resetCredits?.availableCount, Int.max)
     }
   }
 

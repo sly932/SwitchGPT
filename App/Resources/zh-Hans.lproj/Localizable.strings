@@ -92,7 +92,19 @@
 "This changes only local preview state so you can evaluate the flow. It does not quit ChatGPT, replace credentials, or install a background service." = "此操作仅修改本地预览状态，供你查看流程。它不会退出 ChatGPT、替换凭据或安装后台服务。";
 "The selected account is no longer configured." = "所选账号已不在配置中。";
 "The selected account could not be refreshed before switching." = "切换前无法刷新所选账号。";
-"Switch failed safely; the original account was restored and ChatGPT was relaunched once." = "切换安全失败；已还原原账号，并重新启动 ChatGPT 一次。";
+"The switch stopped while waiting for ChatGPT to quit." = "切换在等待 ChatGPT 退出时中止。";
+"The switch stopped while preparing the target account." = "切换在准备目标账号时中止。";
+"The switch stopped while starting ChatGPT for the target account." = "切换在为目标账号启动 ChatGPT 时中止。";
+"The switch stopped while verifying the target account." = "切换在验证目标账号时中止。";
+"The switch stopped while saving its result." = "切换在保存结果时中止。";
+"The account switch stopped." = "账号切换已中止。";
+" The original account was restored." = "原账号已恢复。";
+" Recovery stopped while waiting for ChatGPT to quit." = "恢复在等待 ChatGPT 退出时中止。";
+" Recovery stopped while restoring the original account." = "恢复在还原原账号时中止。";
+" Recovery stopped while reopening ChatGPT." = "恢复在重新打开 ChatGPT 时中止。";
+" Recovery stopped while verifying the original account." = "恢复在验证原账号时中止。";
+" Recovery stopped while saving its result." = "恢复在保存结果时中止。";
+" Manual recovery is required." = "需要手动恢复。";
 "Automatic recovery stopped after its single launch budget. Manual recovery is required." = "自动恢复已达到一次启动上限，需要手动恢复。";
 "The experimental switch was blocked by a safety check; ChatGPT was not changed." = "安全检查阻止了切换；ChatGPT 未被更改。";
 " A private metadata-only verification receipt was saved." = " 已保存仅含元数据的私有验证记录。";
@@ -202,11 +214,14 @@
 "This build is not signed for experimental switching." = "此版本未签名，无法进行实验性账号切换。";
 "The installed ChatGPT app could not be verified." = "无法验证已安装的 ChatGPT 应用。";
 "ChatGPT changed after confirmation. Review and confirm the switch again." = "确认后 ChatGPT 发生了变化，请检查并重新确认切换。";
+"ChatGPT changed during the switch. Review and confirm the switch again." = "切换期间 ChatGPT 版本发生变化。请重新确认切换。";
 "The account currently active in ChatGPT is not configured in SwitchGPT." = "ChatGPT 当前使用的账号尚未在 SwitchGPT 中配置。";
 "SwitchGPT must first preserve the active account in private storage." = "SwitchGPT 需要先将当前账号保存到私有存储中。";
 "The selected account credentials no longer match the pinned account." = "所选账号的凭据与先前固定的账号身份不再匹配。";
 "ChatGPT is already using this account." = "ChatGPT 已在使用此账号。";
+"Account credentials are being updated. Try switching again shortly." = "正在更新账号凭据，请稍后再切换。";
 "SwitchGPT could not create private recovery storage." = "SwitchGPT 无法创建私有恢复存储。";
+"A previous switch needs manual review before another switch can start." = "上一次切换需要人工检查。处理后才能再次切换。";
 "The independent recovery process could not be verified or completed." = "独立恢复进程未能完成验证或执行。";
 "The switch did not complete; SwitchGPT attempted to restore the original account." = "切换未完成；SwitchGPT 已尝试还原原账号。";
 "%@: %@" = "%@：%@";
@@ -246,3 +261,4 @@
 
 "Unable to display the local plan. Open HTML in your browser." = "无法显示本地计划。请在浏览器中打开 HTML。";
 "Local project synchronization or verification failed. The account switch was blocked." = "本地项目同步或一致性核验失败，已阻止切换账号。";
+"SwitchGPT could not verify the local project layout. The switch was blocked before quitting ChatGPT." = "无法验证 ChatGPT 的本地项目格式，已在退出 ChatGPT 前中止切换。";

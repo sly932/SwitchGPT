@@ -39,6 +39,17 @@ final class DesktopIntegrationTests: XCTestCase {
 
   private var temporaryDirectories: [URL] = []
 
+  func testShutdownUpgradeStaysWithinConfirmedCompatibilityRisk() {
+    let confirmed = ChatGPTDesktopCompatibility.assessment(version: "26.1106.51428", build: "26605")
+    let upgrade = ChatGPTDesktopCompatibility.assessment(version: "26.1111.21308", build: "27194")
+    let validated = ChatGPTDesktopCompatibility.assessment(version: "26.810.52044", build: "6662")
+    XCTAssertTrue(confirmed.allowsUpgradeDuringShutdown(to: upgrade))
+    XCTAssertFalse(upgrade.allowsUpgradeDuringShutdown(to: confirmed))
+    XCTAssertFalse(confirmed.allowsUpgradeDuringShutdown(to: confirmed))
+    XCTAssertFalse(validated.allowsUpgradeDuringShutdown(to: upgrade))
+    XCTAssertFalse(confirmed.allowsUpgradeDuringShutdown(to: .unvalidated(version: nil, build: nil)))
+  }
+
   override func tearDownWithError() throws {
     for directory in temporaryDirectories {
       try? FileManager.default.removeItem(at: directory)
@@ -151,6 +162,97 @@ final class DesktopIntegrationTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: fixture.activeAuthenticationURL), before)
     XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
     XCTAssertEqual(projects.prepareCount, 1)
+  }
+
+  func testApplicationChangeDuringExitSkipsProjectAndCredentialWrites() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    let projects = FixtureProjectStateSynchronizer()
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: projects,
+      checkTargetApplication: { _ in throw SafetyError.targetApplicationChanged }
+    )
+
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("switch"))
+    let result = try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB)
+
+    XCTAssertEqual(result.failureReason, .targetApplicationChanged)
+    XCTAssertEqual(result.phase, .rolledBack)
+    XCTAssertEqual(result.targetLaunchAttempts, 0)
+    XCTAssertEqual(projects.prepareCount, 0)
+    XCTAssertEqual(try adapter.currentIdentity(), fixture.identityA)
+    XCTAssertFalse(try fixture.installer.hasRecoverySnapshot())
+  }
+
+  func testApplicationChangeBeforeLaunchAllowsSourceRecovery() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    var applicationChanged = false
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      checkTargetApplication: { _ in
+        if applicationChanged { throw DesktopIntegrationError.desktopDidNotLaunch }
+      }
+    )
+
+    try adapter.stop()
+    try adapter.install(identity: fixture.identityB)
+    applicationChanged = true
+    XCTAssertThrowsError(try adapter.start())
+    XCTAssertEqual(process.startCount, 0)
+
+    try adapter.install(identity: fixture.identityA)
+    try adapter.start()
+    XCTAssertEqual(try adapter.currentIdentity(), fixture.identityA)
+    XCTAssertEqual(process.startCount, 1)
+  }
+
+  func testUpgradeIsPinnedAfterExitBeforeProjectsAndCredentialHandoff() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    var pinCaptured = false
+    var pinChecks = 0
+    let projects = FixtureProjectStateSynchronizer(prepare: {
+      XCTAssertTrue(pinCaptured)
+      XCTAssertEqual(pinChecks, 1)
+    })
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: projects,
+      checkTargetApplication: { check in
+        XCTAssertFalse(process.running)
+        switch check {
+        case .afterExit:
+          XCTAssertFalse(pinCaptured)
+          pinCaptured = true
+        case .pinnedBuild:
+          XCTAssertTrue(pinCaptured)
+          pinChecks += 1
+        }
+      }
+    )
+
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("switch"))
+    let result = try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB)
+    XCTAssertEqual(result.phase, .committed)
+    XCTAssertEqual(try adapter.currentIdentity(), fixture.identityB)
+    XCTAssertEqual(process.startCount, 1)
+    XCTAssertEqual(pinChecks, 2)
   }
 
   func testSourceCaptureFailureRejectsBeforeDesktopStops() throws {
@@ -269,6 +371,35 @@ final class DesktopIntegrationTests: XCTestCase {
     XCTAssertEqual(events, ["capture", "writeAll", "verifyAll", "approve"])
     XCTAssertEqual(try reader.currentIdentity(), fixture.identityB)
     XCTAssertEqual(process.startCount, 1)
+  }
+
+  func testSwitchArchivesCredentialsRenewedDuringDesktopExit() throws {
+    let fixture = try makeFixture()
+    let process = FixtureProcessController()
+    let authority = FixtureProjectAuthority(afterExit: { _ in
+      let current = try Data(contentsOf: fixture.activeAuthenticationURL)
+      try (current + Data("\n".utf8)).write(to: fixture.activeAuthenticationURL)
+    })
+    let adapter = try RealChatGPTDesktopAdapter(
+      sourceIdentity: fixture.identityA,
+      profiles: fixture.profiles,
+      processController: process,
+      identityReader: PinnedAuthenticationIdentityReader(
+        authenticationFileURL: fixture.activeAuthenticationURL),
+      authenticationInstaller: fixture.installer,
+      projectStateSynchronizer: authority,
+      activeAuthenticationURL: fixture.activeAuthenticationURL,
+      preserveDepartingCredentialsAfterExit: true)
+    let store = try TransactionStore(directoryURL: fixture.root.appendingPathComponent("switch"))
+    let source = try XCTUnwrap(fixture.profiles.first?.authenticationFileURL)
+    let previous = try Data(contentsOf: source)
+
+    let result = try SwitchTransactionEngine(store: store, desktop: adapter)
+      .beginSwitch(from: fixture.identityA, to: fixture.identityB)
+
+    XCTAssertEqual(result.phase, .committed)
+    XCTAssertEqual(try Data(contentsOf: source), previous + Data("\n".utf8))
+    XCTAssertEqual(try Data(contentsOf: fixture.recoverySnapshotURL), try Data(contentsOf: source))
   }
 
   func testEarlyArmedRecoveryUsesSnapshotCreatedLaterByTheSwitch() throws {
@@ -455,6 +586,39 @@ final class DesktopIntegrationTests: XCTestCase {
     )
   }
 
+  func testEmptyAppListDoesNotMeanTheObservedProcessExited() {
+    var observation = DesktopProcessObservation()
+    let start = ContinuousClock.now
+    let stabilityPeriod: Duration = .milliseconds(500)
+    observation.update(registered: [101], at: start, isAlive: { _ in true })
+
+    let listBecameEmpty = start.advanced(by: .seconds(1))
+    observation.update(registered: [], at: listBecameEmpty, isAlive: { _ in true })
+    XCTAssertEqual(observation.processIdentifiers, [101])
+    XCTAssertFalse(observation.hasStopped(at: listBecameEmpty, stabilityPeriod: stabilityPeriod))
+
+    let processExited = start.advanced(by: .seconds(2))
+    observation.update(registered: [], at: processExited, isAlive: { _ in false })
+    XCTAssertFalse(observation.hasStopped(at: processExited, stabilityPeriod: stabilityPeriod))
+    XCTAssertTrue(observation.hasStopped(
+      at: processExited.advanced(by: stabilityPeriod), stabilityPeriod: stabilityPeriod))
+  }
+
+  func testAnotherProcessAppearingRestartsTheExitObservationWindow() {
+    var observation = DesktopProcessObservation()
+    let start = ContinuousClock.now
+    let stabilityPeriod: Duration = .milliseconds(500)
+    observation.update(registered: [101], at: start, isAlive: { _ in true })
+    observation.update(registered: [], at: start.advanced(by: .milliseconds(100)), isAlive: { _ in false })
+    observation.update(registered: [102], at: start.advanced(by: .milliseconds(300)), isAlive: { _ in true })
+
+    let later = start.advanced(by: .milliseconds(700))
+    XCTAssertFalse(observation.hasStopped(at: later, stabilityPeriod: stabilityPeriod))
+    observation.update(registered: [], at: later, isAlive: { _ in false })
+    XCTAssertFalse(observation.hasStopped(at: later, stabilityPeriod: stabilityPeriod))
+    XCTAssertTrue(observation.hasStopped(at: later.advanced(by: stabilityPeriod), stabilityPeriod: stabilityPeriod))
+  }
+
   func testFreshRecoveryProcessRestoresSnapshotAfterTargetInstallCrash() throws {
     let fixture = try makeFixture()
     let transactionStore = try TransactionStore(
@@ -556,7 +720,12 @@ final class DesktopIntegrationTests: XCTestCase {
 
   private func writeAuthentication(email: String, to url: URL) throws {
     let header = Data("{\"alg\":\"none\"}".utf8).base64URLEncodedString()
-    let payload = try JSONSerialization.data(withJSONObject: ["email": email])
+    let payload = try JSONSerialization.data(withJSONObject: [
+      "email": email,
+      "https://api.openai.com/auth": [
+        "chatgpt_user_id": "user-\(email)", "chatgpt_account_id": "workspace-\(email)",
+      ],
+    ])
       .base64URLEncodedString()
     let object: [String: Any] = [
       "auth_mode": "chatgpt",

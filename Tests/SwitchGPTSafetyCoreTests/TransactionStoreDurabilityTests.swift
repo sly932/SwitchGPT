@@ -49,6 +49,39 @@ final class TransactionStoreDurabilityTests: XCTestCase {
     )
   }
 
+  func testLoadsLegacyV1RecordWithoutFailurePhases() throws {
+    let root = try makeTemporaryDirectory()
+    let store = try TransactionStore(directoryURL: root.appendingPathComponent("transaction"))
+    let oldEnvelope = """
+      {
+        "checksum": "5c709283f34b2aa825c56e4cb5439da969cf3bac137795db3cd0666744278729",
+        "envelopeSchemaVersion": 1,
+        "record": {
+          "createdAt": 1700000000,
+          "failureReason": "recoveryOperationFailed",
+          "id": "11111111-1111-4111-8111-111111111111",
+          "mode": "recoveryOnly",
+          "phase": "manualRecoveryRequired",
+          "recoveryIdentity": "account-a",
+          "rollbackLaunchAttempts": 0,
+          "schemaVersion": 1,
+          "sourceIdentity": "account-a",
+          "targetIdentity": "account-b",
+          "targetLaunchAttempts": 0,
+          "targetWasInstalled": false,
+          "updatedAt": 1700000010
+        }
+      }
+      """
+    try overwritePrivate(Data(oldEnvelope.utf8), at: store.stateURL)
+
+    let record = try XCTUnwrap(store.load())
+    XCTAssertEqual(record.phase, .manualRecoveryRequired)
+    XCTAssertEqual(record.failureReason, .recoveryOperationFailed)
+    XCTAssertNil(record.targetFailurePhase)
+    XCTAssertNil(record.recoveryFailurePhase)
+  }
+
   func testOversizedStateStopsRecoveryBeforeDesktopSideEffects() throws {
     let harness = try makePersistedHarness()
     try overwritePrivate(

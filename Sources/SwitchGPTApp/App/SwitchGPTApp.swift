@@ -82,7 +82,8 @@ struct SwitchGPTApp: App {
   @State private var store = SwitchGPTAppStore(
     persistence: PreviewStateFileStore.defaultStore,
     initialAccounts: [],
-    credentialSynchronizer: ActiveAccountCredentialSynchronizer()
+    credentialSynchronizer: ActiveAccountCredentialSynchronizer(),
+    backgroundUsageStore: .defaultStore
   )
   @State private var updateStore = AppUpdateStore()
   @State private var listPreferences = AccountListPreferences()

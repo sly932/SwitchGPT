@@ -14,11 +14,11 @@ final class SubscriptionDisplayStore {
 
   @ObservationIgnored private let fileStore: AccountSubscriptionStore
   @ObservationIgnored private var observedFiles: [ObservedPlanFile]?
-  @ObservationIgnored private var directoryObserver: UsagePlanDirectoryObserver?
+  @ObservationIgnored private var directoryObserver: AtomicFileDirectoryObserver?
 
   init(fileStore: AccountSubscriptionStore = .defaultStore) {
     self.fileStore = fileStore
-    directoryObserver = UsagePlanDirectoryObserver(
+    directoryObserver = AtomicFileDirectoryObserver(
       directory: fileStore.fileURL.deletingLastPathComponent()
     ) { [weak self] in
       Task { @MainActor [weak self] in self?.reload() }
@@ -89,10 +89,10 @@ private struct ObservedPlanFile: Equatable {
 
 /// Watches the directory because atomic JSON writes replace the original file inode.
 /// All mutable observation state stays on this private serial queue.
-private final class UsagePlanDirectoryObserver: @unchecked Sendable {
+final class AtomicFileDirectoryObserver: @unchecked Sendable {
   private let directory: URL
   private let onChange: @Sendable () -> Void
-  private let queue = DispatchQueue(label: "SwitchGPT.usage-plan-observation")
+  private let queue = DispatchQueue(label: "SwitchGPT.atomic-file-observation")
   private var source: DispatchSourceFileSystemObject?
   private var pendingChange: DispatchWorkItem?
 

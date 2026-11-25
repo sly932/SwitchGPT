@@ -21,18 +21,20 @@ public enum LocalProjectStateSynchronizationError: Error, Equatable {
   case identityUnavailable
   case identityMismatch
   case unsupportedSchema
+  case unsupportedProjectLayout
   case transactionConflict
   case stateMismatch
   case missingVerification
 }
 
-/// Records changes from the verified active account and distributes that exact local subset.
-/// Background capture changes only the private master. Switch verification never repairs state.
+/// Verifies local projects across account switches. The legacy layout needs private snapshots
+/// and distribution; ChatGPT's owner-scoped layout already shares local projects itself.
 public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging {
   private let globalStateURL: URL
   private let sharedStateURL: URL
   private let transactionDirectoryURL: URL
   private let registryKey = "electron-account-renderer-state-v1"
+  private let contentOwnerKey = "electron-renderer-content-owner"
   private let atomsKey = "electron-persisted-atom-state"
 
   private static let mapKeys = [
@@ -52,6 +54,14 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
   ]
   private static let expandedPrefix = "sidebar-project-expanded-v1-codex:"
 
+  // ChatGPT keeps these fields global in the owner-scoped layout. Migration markers,
+  // path hints, and owner atoms are managed by ChatGPT independently for each account.
+  private static let sharedMapKeys = [
+    "local-projects", "app-server-project-id-by-legacy-project-id-by-host",
+    "project-appearances", "sidebar-project-thread-orders", "thread-project-assignments",
+    "thread-project-membership-host-ids",
+  ]
+
   public init(globalStateURL: URL, sharedStateURL: URL, transactionDirectoryURL: URL) {
     self.globalStateURL = globalStateURL.standardizedFileURL
     self.sharedStateURL = sharedStateURL.standardizedFileURL
@@ -67,6 +77,11 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     let lock = try acquireLock()
     defer { lock.release() }
     guard let (bytes, document) = try readDocument() else { return }
+    if document[contentOwnerKey] != nil {
+      try requireContentOwner(owner, document: document)
+      _ = try sharedSnapshot(document)
+      return
+    }
     try requireActiveOwner(owner, document: document)
     let before = try readMaster()
     let current = try snapshot(owner: owner, document: document)
@@ -85,6 +100,16 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     let lock = try acquireLock()
     defer { lock.release() }
     guard let (bytes, document) = try readDocument() else { return }
+    if document[contentOwnerKey] != nil {
+      try requireContentOwner(owner, document: document)
+      let proof = SharedProjectVerificationProof(
+        activeOwner: owner, managedOwners: owners,
+        snapshotDigest: try digest(sharedSnapshot(document))
+      )
+      try requireUnchanged(bytes)
+      try writeRecord(proof, to: sharedProofURL)
+      return
+    }
     try requireActiveOwner(owner, document: document)
     for managed in owners { _ = try snapshot(owner: managed, document: document) }
     let before = try readMaster()
@@ -110,6 +135,13 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     let lock = try acquireLock()
     defer { lock.release() }
     guard let (bytes, original) = try readDocument() else { return }
+    if original[contentOwnerKey] != nil {
+      var proof = try verifySharedProjects(original, owner: owner, expectedOwners: owners)
+      proof.verifiedAfterExit = true
+      try requireUnchanged(bytes)
+      try writeRecord(proof, to: sharedProofURL)
+      return
+    }
     var proof = try verifyCapturedSource(document: original, owner: owner, expectedOwners: owners)
     guard let master = try readMaster() else {
       throw LocalProjectStateSynchronizationError.missingVerification
@@ -121,8 +153,8 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     try requireEqualSubsets(document: document, owners: owners, canonical: master.canonical)
     try backup(document: original, previous: master, operation: "synchronize-after-exit")
     try commit(document: document, originalBytes: bytes, master: master)
-    guard let (_, written) = try readDocument() else {
-      throw LocalProjectStateSynchronizationError.stateMismatch
+    guard let (_, written) = try readDocument(), written[registryKey] != nil else {
+      throw LocalProjectStateSynchronizationError.unsupportedProjectLayout
     }
     _ = try verifyCapturedSource(document: written, owner: owner, expectedOwners: owners)
     try requireEqualSubsets(document: written, owners: owners, canonical: master.canonical)
@@ -145,6 +177,11 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     let lock = try acquireLock()
     defer { lock.release() }
     guard let (_, document) = try readDocument() else { return }
+    if document[contentOwnerKey] != nil {
+      let proof = try verifySharedProjects(document, owner: owner, expectedOwners: owners)
+      guard proof.verifiedAfterExit else { throw LocalProjectStateSynchronizationError.missingVerification }
+      return
+    }
     try verify(document: document, owner: owner, expectedOwners: owners)
   }
 
@@ -153,8 +190,17 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     let target = try rendererOwner(authenticationURL: targetAuthenticationURL)
     let lock = try acquireLock()
     defer { lock.release() }
-    guard let (_, document) = try readDocument() else { return }
+    guard let (bytes, document) = try readDocument() else { return }
     guard source != target else { throw LocalProjectStateSynchronizationError.identityMismatch }
+    if document[contentOwnerKey] != nil {
+      var proof = try verifySharedProjects(document, owner: source, expectedOwners: nil)
+      guard proof.verifiedAfterExit else { throw LocalProjectStateSynchronizationError.missingVerification }
+      guard proof.managedOwners.contains(target) else { throw LocalProjectStateSynchronizationError.identityMismatch }
+      proof.approvedTargetOwner = target
+      try requireUnchanged(bytes)
+      try writeRecord(proof, to: sharedProofURL)
+      return
+    }
     let proof = try verify(document: document, owner: source, expectedOwners: nil)
     guard proof.managedOwners.contains(target), var master = try readMaster() else {
       throw LocalProjectStateSynchronizationError.identityMismatch
@@ -174,6 +220,22 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
   public func recoverSource(sourceAuthenticationURL: URL) throws {
     let lock = try acquireLock()
     defer { lock.release() }
+    if let sharedProof: SharedProjectVerificationProof = try readRecord(sharedProofURL) {
+      let source = try rendererOwner(authenticationURL: sourceAuthenticationURL)
+      guard source == sharedProof.activeOwner else { throw LocalProjectStateSynchronizationError.identityMismatch }
+      guard let (_, document) = try readDocument(), document[contentOwnerKey] != nil else {
+        throw LocalProjectStateSynchronizationError.unsupportedProjectLayout
+      }
+      let currentOwner = document[contentOwnerKey]?.string
+      guard currentOwner == source || currentOwner == sharedProof.approvedTargetOwner else {
+        throw LocalProjectStateSynchronizationError.identityMismatch
+      }
+      // ChatGPT has already shared the project fields across accounts. Recovery only
+      // checks the layout; neither rolling back credentials nor recent project edits
+      // require replacing the project file.
+      _ = try sharedSnapshot(document)
+      return
+    }
     var journal: ProjectAuthorityJournal? = try readRecord(journalURL)
     let proof: ProjectVerificationProof? = journal == nil ? try readRecord(proofURL) : nil
     guard journal != nil || proof != nil else { return }
@@ -183,8 +245,8 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
     guard source == expectedSource else {
       throw LocalProjectStateSynchronizationError.identityMismatch
     }
-    guard let (bytes, original) = try readDocument() else {
-      throw LocalProjectStateSynchronizationError.invalidState
+    guard let (bytes, original) = try readDocument(), original[registryKey] != nil else {
+      throw LocalProjectStateSynchronizationError.unsupportedProjectLayout
     }
     guard let before = try readMaster() ?? journal?.prepared else {
       throw LocalProjectStateSynchronizationError.missingVerification
@@ -241,6 +303,9 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
   private var journalURL: URL {
     transactionDirectoryURL.appendingPathComponent("local-project-sync-journal.json")
   }
+  private var sharedProofURL: URL {
+    transactionDirectoryURL.appendingPathComponent("local-project-shared-verification.json")
+  }
 
   private func acquireLock() throws -> ProjectStateLock {
     try ProjectStateFile.prepareDirectory(sharedStateURL.deletingLastPathComponent())
@@ -252,9 +317,68 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
       throw LocalProjectStateSynchronizationError.invalidState
     }
     let document = try object(bytes)
-    guard document[registryKey] != nil else { return nil }
-    try validateRegistry(document)
-    return (bytes, document)
+    guard !document.keys.contains(where: {
+      $0.hasPrefix("electron-account-renderer-state-") && $0 != registryKey
+    }) else { throw LocalProjectStateSynchronizationError.unsupportedProjectLayout }
+    if document[registryKey] != nil {
+      guard document[contentOwnerKey] == nil else {
+        throw LocalProjectStateSynchronizationError.unsupportedProjectLayout
+      }
+      try validateRegistry(document)
+      return (bytes, document)
+    }
+    if document[contentOwnerKey] != nil {
+      guard document[contentOwnerKey]?.string?.isEmpty == false,
+        document[atomsKey] == nil || document[atomsKey]?.object != nil
+      else {
+        throw LocalProjectStateSynchronizationError.unsupportedProjectLayout
+      }
+      return (bytes, document)
+    }
+    guard !hasProjectStateWithoutOwner(document),
+      try ProjectStateFile.readIfPresent(proofURL) == nil,
+      try ProjectStateFile.readIfPresent(sharedProofURL) == nil,
+      try ProjectStateFile.readIfPresent(journalURL) == nil,
+      try ProjectStateFile.readIfPresent(sharedStateURL) == nil
+    else { throw LocalProjectStateSynchronizationError.unsupportedProjectLayout }
+    return nil
+  }
+
+  private func hasProjectStateWithoutOwner(_ document: [String: ProjectJSON]) -> Bool {
+    if document.keys.contains(where: { key in
+      key.hasPrefix("electron-owner-value:") || key.hasPrefix("electron-owner-atoms:")
+        || key.hasPrefix("electron-account-remote-preference:")
+    }) { return true }
+    if Self.mapKeys.contains(where: { document[$0] != nil && document[$0] != .object([:]) }) { return true }
+    if Self.listKeys.contains(where: { document[$0] != nil && document[$0] != .array([]) }) { return true }
+    guard let persistedAtoms = document[atomsKey] else { return false }
+    guard let atoms = persistedAtoms.object else { return true }
+    return atoms.contains { key, value in
+      (Self.atomKeys.contains(key) || key.hasPrefix(Self.expandedPrefix))
+        && value != .array([]) && value != .object([:])
+    }
+  }
+
+  private func requireContentOwner(_ owner: String, document: [String: ProjectJSON]) throws {
+    guard document[contentOwnerKey]?.string == owner else { throw LocalProjectStateSynchronizationError.identityMismatch }
+  }
+
+  private func sharedSnapshot(_ document: [String: ProjectJSON]) throws -> ProjectSnapshot {
+    let keys = Set(Self.sharedMapKeys + Self.listKeys)
+    return try snapshot(globals: document.filter { keys.contains($0.key) }, atoms: [:])
+  }
+
+  private func verifySharedProjects(
+    _ document: [String: ProjectJSON], owner: String, expectedOwners: [String]?
+  ) throws -> SharedProjectVerificationProof {
+    guard let proof: SharedProjectVerificationProof = try readRecord(sharedProofURL) else {
+      throw LocalProjectStateSynchronizationError.missingVerification
+    }
+    try requireContentOwner(owner, document: document)
+    guard proof.activeOwner == owner, expectedOwners == nil || expectedOwners == proof.managedOwners,
+      try digest(sharedSnapshot(document)) == proof.snapshotDigest
+    else { throw LocalProjectStateSynchronizationError.stateMismatch }
+    return proof
   }
 
   private func requireActiveOwner(_ owner: String, document: [String: ProjectJSON]) throws {
@@ -442,6 +566,10 @@ public final class LocalProjectStateSynchronizer: LocalProjectAuthorityManaging 
 
   private func snapshot(owner: String, document: [String: ProjectJSON]) throws -> ProjectSnapshot {
     let (globals, atoms) = try containers(owner: owner, document: document)
+    return try snapshot(globals: globals, atoms: atoms)
+  }
+
+  private func snapshot(globals: [String: ProjectJSON], atoms: [String: ProjectJSON]) throws -> ProjectSnapshot {
     var result = ProjectSnapshot()
     let projects = globals["local-projects"]?.object ?? [:]
     guard globals["local-projects"] == nil || globals["local-projects"]?.object != nil else {
@@ -706,6 +834,26 @@ private struct ProjectAuthorityState: Codable, Equatable, ProjectStateVersioned 
 private enum ProjectVerificationStage: String, Codable {
   case captured
   case distributed
+}
+
+private struct SharedProjectVerificationProof: Codable, ProjectStateVersioned {
+  var schemaVersion = 2
+  let activeOwner: String
+  let managedOwners: [String]
+  let snapshotDigest: String
+  var verifiedAfterExit = false
+  var approvedTargetOwner: String?
+
+  func validate() throws {
+    guard !activeOwner.isEmpty, !snapshotDigest.isEmpty,
+      Set(managedOwners).count == managedOwners.count, managedOwners.contains(activeOwner)
+    else { throw LocalProjectStateSynchronizationError.invalidState }
+    if let approvedTargetOwner {
+      guard verifiedAfterExit, approvedTargetOwner != activeOwner,
+        managedOwners.contains(approvedTargetOwner)
+      else { throw LocalProjectStateSynchronizationError.invalidState }
+    }
+  }
 }
 
 private struct ProjectVerificationProof: Codable, ProjectStateVersioned {

@@ -14,17 +14,49 @@ final class AccountDetailsReliabilityTests: XCTestCase {
     XCTAssertEqual(snapshots[account.id]?.usage.resetCredits?.knownDetailCount, 2)
     XCTAssertEqual(snapshots[account.id]?.usage.tokenActivity?.lifetimeTokens, 123)
     XCTAssertEqual(try fixture.methods(), [
-      "initialize", "account/read", "account/rateLimits/read", "account/usage/read",
+      "initialize", "account/login/start", "account/read", "account/rateLimits/read", "account/usage/read",
       "account/rateLimits/read",
     ])
     let sourceAuth = try Data(contentsOf: fixture.home.appendingPathComponent("auth.json"))
-    XCTAssertEqual(sourceAuth, Data("fixture only, no real credentials".utf8))
+    XCTAssertEqual(sourceAuth, try fixtureChatGPTAuthentication(email: "fixture@example.test"))
+  }
+
+  func testActiveReadWithoutEmailUsesMatchingClaimsFromThePrivateFile() async throws {
+    var responses = DetailsFixture.responses
+    responses[2]["result"] = ["account": [
+      "type": "chatgpt", "email": NSNull(), "planType": "pro",
+    ]]
+    responses[3] = DetailsFixture.rateLimits(details: true)
+    let fixture = try DetailsFixture(responses: responses)
+    defer { fixture.remove() }
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fixture.home.path)
+    let probe = try await fixture.reader.probeActiveProfile(
+      authenticationFileURL: fixture.home.appendingPathComponent("auth.json")
+    )
+    XCTAssertEqual(probe.email, "fixture@example.test")
+    XCTAssertEqual(probe.usage.weekly.usedPercent, 12)
+  }
+
+  func testReadOnlyProbeRejectsMismatchedReturnedEmailBeforeReadingQuota() async throws {
+    var responses = DetailsFixture.responses
+    responses[2]["result"] = ["account": [
+      "type": "chatgpt", "email": "someone-else@example.test", "planType": "pro",
+    ]]
+    let fixture = try DetailsFixture(responses: responses)
+    defer { fixture.remove() }
+    do {
+      _ = try await fixture.reader.probe(codexHomePath: fixture.home.path)
+      XCTFail("Quota must not be queried for another identity")
+    } catch {
+      XCTAssertEqual(error as? QuotaReadingError, .identityMismatch)
+    }
+    XCTAssertEqual(try fixture.methods(), ["initialize", "account/login/start", "account/read"])
   }
 
   func testRetriesTransientTokenFailureOnceWithoutLosingQuota() async throws {
     var responses = DetailsFixture.responses
-    responses[2] = DetailsFixture.rateLimits(details: true)
-    responses[3] = DetailsFixture.error(method: "account/usage/read", code: -32603)
+    responses[3] = DetailsFixture.rateLimits(details: true)
+    responses[4] = DetailsFixture.error(method: "account/usage/read", code: -32603)
     responses.append(DetailsFixture.tokenActivity)
     let fixture = try DetailsFixture(responses: responses)
     defer { fixture.remove() }
@@ -37,8 +69,8 @@ final class AccountDetailsReliabilityTests: XCTestCase {
 
   func testUnsupportedTokenMethodIsNotRetriedAndQuotaSurvives() async throws {
     var responses = DetailsFixture.responses
-    responses[2] = DetailsFixture.rateLimits(details: true)
-    responses[3] = DetailsFixture.error(method: "account/usage/read", code: -32601)
+    responses[3] = DetailsFixture.rateLimits(details: true)
+    responses[4] = DetailsFixture.error(method: "account/usage/read", code: -32601)
     let fixture = try DetailsFixture(responses: responses)
     defer { fixture.remove() }
     let account = try fixture.account()
@@ -50,9 +82,9 @@ final class AccountDetailsReliabilityTests: XCTestCase {
 
   func testTransientTokenFailuresStopAfterOneRetry() async throws {
     var responses = DetailsFixture.responses
-    responses[2] = DetailsFixture.rateLimits(details: true)
-    responses[3] = DetailsFixture.error(method: "account/usage/read", code: -32603)
-    responses.append(responses[3])
+    responses[3] = DetailsFixture.rateLimits(details: true)
+    responses[4] = DetailsFixture.error(method: "account/usage/read", code: -32603)
+    responses.append(responses[4])
     let fixture = try DetailsFixture(responses: responses)
     defer { fixture.remove() }
     let account = try fixture.account()
@@ -105,8 +137,8 @@ final class AccountDetailsReliabilityTests: XCTestCase {
 
   func testOptionalReadDoesNotExtendTheAccountDeadline() async throws {
     var responses = DetailsFixture.responses
-    responses[2] = DetailsFixture.rateLimits(details: true)
-    responses[3]["delay"] = 2
+    responses[3] = DetailsFixture.rateLimits(details: true)
+    responses[4]["delay"] = 2
     let fixture = try DetailsFixture(responses: responses)
     defer { fixture.remove() }
     let account = try fixture.account()
@@ -120,10 +152,40 @@ final class AccountDetailsReliabilityTests: XCTestCase {
     XCTAssertEqual(try fixture.methods().filter { $0 == "account/usage/read" }.count, 1)
   }
 
+  func testExitedServerDoesNotTerminateQuotaReader() async throws {
+    var responses = DetailsFixture.responses
+    responses[0]["exitAfterReply"] = true
+    let fixture = try DetailsFixture(responses: responses)
+    defer { fixture.remove() }
+    do {
+      _ = try await fixture.reader.probe(codexHomePath: fixture.home.path)
+      XCTFail("Expected the incomplete exchange to fail")
+    } catch {
+      XCTAssertTrue(error is QuotaReadingError)
+    }
+  }
+
+  func testServerIgnoringTerminationIsStoppedAfterDeadline() async throws {
+    var responses = DetailsFixture.responses
+    responses[0]["ignoreTerminate"] = true
+    responses[0]["delay"] = 8
+    let fixture = try DetailsFixture(responses: responses)
+    defer { fixture.remove() }
+    let reader = CodexAppServerQuotaReader(codexBinaryURL: fixture.binary, timeout: .milliseconds(500))
+    let start = ContinuousClock.now
+    do {
+      _ = try await reader.probe(codexHomePath: fixture.home.path)
+      XCTFail("Expected a deadline error")
+    } catch {
+      XCTAssertEqual(error as? QuotaReadingError, .timedOut)
+      XCTAssertTrue(start.duration(to: .now) < .seconds(4))
+    }
+  }
+
   func testMultiAccountReaderLimitsConcurrencyAndQueriesTheQueue() async throws {
     var responses = DetailsFixture.responses
     responses[0]["delay"] = 0.2
-    responses[2] = DetailsFixture.rateLimits(details: true)
+    responses[3] = DetailsFixture.rateLimits(details: true)
     let fixture = try DetailsFixture(responses: responses)
     defer { fixture.remove() }
     let accounts = try (0..<9).map { try fixture.account(id: "account-\($0)") }
@@ -142,7 +204,7 @@ final class AccountDetailsReliabilityTests: XCTestCase {
 
   func testQueuedHealthyAccountStillRunsWhenFirstAccountsFailIdentityCheck() async throws {
     var responses = DetailsFixture.responses
-    responses[2] = DetailsFixture.rateLimits(details: true)
+    responses[3] = DetailsFixture.rateLimits(details: true)
     let fixture = try DetailsFixture(responses: responses)
     defer { fixture.remove() }
     var accounts = try (0..<4).map {
@@ -212,8 +274,9 @@ private struct DetailsFixture {
   static var responses: [[String: Any]] {
     [
       ["method": "initialize", "result": [:] as [String: Any]],
+      ["method": "account/login/start", "result": ["type": "chatgptAuthTokens"]],
       ["method": "account/read", "result": [
-        "account": ["email": "fixture@example.test", "planType": "pro"]
+        "account": ["type": "chatgpt", "email": "fixture@example.test", "planType": "pro"]
       ]],
       rateLimits(details: false), tokenActivity,
     ]
@@ -247,7 +310,7 @@ private struct DetailsFixture {
     try FileManager.default.createDirectory(
       at: home, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let auth = home.appendingPathComponent("auth.json")
-    try Data("fixture only, no real credentials".utf8).write(to: auth)
+    try fixtureChatGPTAuthentication(email: "fixture@example.test").write(to: auth)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: auth.path)
     let encoded = String(decoding: try JSONSerialization.data(withJSONObject: responses), as: UTF8.self)
     let logPath = String(decoding: try JSONEncoder().encode(eventsURL.path), as: UTF8.self)
@@ -263,7 +326,7 @@ private struct DetailsFixture {
       def stop(*args):
           event({'event':'end', 'pid':os.getpid()})
           sys.exit(0)
-      signal.signal(signal.SIGTERM, stop)
+      signal.signal(signal.SIGTERM, signal.SIG_IGN if responses[0].get('ignoreTerminate') else stop)
       event({'event':'start', 'pid':os.getpid()})
       index = 0
       for line in sys.stdin:
@@ -281,6 +344,8 @@ private struct DetailsFixture {
               result = {k:v for k,v in response.items() if k in ['result','error']}
           result['id'] = request['id']
           print(json.dumps(result), flush=True)
+          if response.get('exitAfterReply'):
+              stop()
       stop()
       """
     try Data(script.utf8).write(to: binary)
@@ -307,4 +372,27 @@ private struct DetailsFixture {
 
   func methods() throws -> [String] { try events().compactMap { $0["method"] as? String } }
   func remove() { try? FileManager.default.removeItem(at: root) }
+}
+
+func fixtureChatGPTAuthentication(email: String, accountID: String = "fixture-workspace")
+  throws -> Data
+{
+  let claims: [String: Any] = [
+    "email": email,
+    "sub": "fixture-user",
+    "https://api.openai.com/auth": ["chatgpt_account_id": accountID],
+  ]
+  let encoded = try JSONSerialization.data(withJSONObject: claims, options: [.sortedKeys])
+    .base64EncodedString()
+    .replacingOccurrences(of: "+", with: "-")
+    .replacingOccurrences(of: "/", with: "_")
+    .replacingOccurrences(of: "=", with: "")
+  let jwt = "eyJhbGciOiJub25lIn0.\(encoded).fixture"
+  return try JSONSerialization.data(withJSONObject: [
+    "auth_mode": "chatgpt",
+    "tokens": [
+      "id_token": jwt, "access_token": jwt, "refresh_token": "fixture-refresh-token",
+      "account_id": accountID,
+    ],
+  ], options: [.sortedKeys])
 }

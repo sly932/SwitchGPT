@@ -30,25 +30,27 @@ public struct ActiveAccountCredentialSynchronizer: ActiveAccountCredentialSynchr
   public func synchronize(accounts: [AccountRecord]) throws -> AccountID? {
     guard accounts.contains(where: { if case .codexHome = $0.source { true } else { false } })
     else { return nil }
-    let activeIdentity = try PinnedAuthenticationIdentityReader(
-      authenticationFileURL: activeAuthenticationURL
-    ).currentIdentity()
-    let matchingAccounts = accounts.filter { $0.identityHash == activeIdentity.rawValue }
+    let credentialLock = try AccountCredentialLock.acquire(
+      appDirectory: accountsRootURL.deletingLastPathComponent())
+    defer { credentialLock.release() }
+    let activeData = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(
+      at: activeAuthenticationURL)
+    let activeIdentities = try PinnedAuthenticationIdentityReader.identityHashes(
+      fromAuthenticationData: activeData)
+    let matchingAccounts = accounts.filter { account in
+      account.identityHash.map { activeIdentities.contains($0) } ?? false
+    }
     guard !matchingAccounts.isEmpty else { return nil }
     guard matchingAccounts.count == 1 else { throw QuotaReadingError.identityMismatch }
     let account = matchingAccounts[0]
-    guard case .codexHome(let path) = account.source else { return nil }
-    let directory = URL(fileURLWithPath: path).standardizedFileURL
-    // Read-only external profiles are not managed by SwitchGPT and must remain untouched.
-    guard directory.deletingLastPathComponent() == accountsRootURL,
-      UUID(uuidString: directory.lastPathComponent) != nil
+    guard case .codexHome(let path) = account.source,
+      let hash = account.identityHash, let activeIdentity = IdentityID(rawValue: hash)
     else { return nil }
-    guard directory.resolvingSymlinksInPath() == directory,
-      accountsRootURL.resolvingSymlinksInPath() == accountsRootURL
-    else { throw QuotaReadingError.invalidHomePath }
+    guard let archive = try CodexManagedAccountOnboarder(accountsRootURL: accountsRootURL)
+      .managedAuthenticationURL(for: path) else { return nil }
     try SecureAuthenticationFileInstaller.synchronizePrivateAuthenticationFile(
       from: activeAuthenticationURL,
-      to: directory.appendingPathComponent("auth.json"),
+      to: archive,
       expectedIdentity: activeIdentity
     )
     return account.id

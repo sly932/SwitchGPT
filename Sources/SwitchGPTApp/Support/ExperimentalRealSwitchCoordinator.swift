@@ -15,17 +15,20 @@ struct RealSwitchPlan: Sendable, Identifiable {
   fileprivate let targetAuthenticationURL: URL
   fileprivate let expectedHostTeamIdentifier: String
   fileprivate let helperURL: URL
-  let targetApplicationCompatibility: ChatGPTDesktopCompatibilityAssessment
+  fileprivate let targetApplication: VerifiedTargetApplication
+
+  var targetApplicationCompatibility: ChatGPTDesktopCompatibilityAssessment {
+    targetApplication.compatibility
+  }
 }
 
-enum RealSwitchOutcome: Sendable {
-  case committed
-  case rolledBack
-  case manualRecoveryRequired
+fileprivate struct VerifiedTargetApplication: Equatable, Sendable {
+  let compatibility: ChatGPTDesktopCompatibilityAssessment
+  let codeDirectoryHash: Data
 }
 
 struct RealSwitchResult: Sendable {
-  let outcome: RealSwitchOutcome
+  let receipt: RealSwitchReceipt
   let receiptRecorded: Bool
 }
 
@@ -37,7 +40,9 @@ enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
   case activeAccountNotPreserved
   case targetAccountChanged
   case sourceAndTargetMatch
+  case credentialsBusy
   case insecureStorage
+  case previousSwitchRequiresReview
   case recoveryHelperFailed
   case switchFailed
 
@@ -57,8 +62,12 @@ enum ExperimentalRealSwitchError: Error, LocalizedError, Sendable {
       return L10n.string("The selected account credentials no longer match the pinned account.")
     case .sourceAndTargetMatch:
       return L10n.string("ChatGPT is already using this account.")
+    case .credentialsBusy:
+      return L10n.string("Account credentials are being updated. Try switching again shortly.")
     case .insecureStorage:
       return L10n.string("SwitchGPT could not create private recovery storage.")
+    case .previousSwitchRequiresReview:
+      return L10n.string("A previous switch needs manual review before another switch can start.")
     case .recoveryHelperFailed:
       return L10n.string("The independent recovery process could not be verified or completed.")
     case .switchFailed:
@@ -116,44 +125,45 @@ enum ExperimentalRealSwitchCoordinator {
     else {
       throw ExperimentalRealSwitchError.invalidHostSigningConfiguration
     }
-    let targetApplicationCompatibility = try validateTargetApplication()
+    let targetApplication = try validateTargetApplication()
 
     let activeAuthenticationURL = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".codex", isDirectory: true)
       .appendingPathComponent("auth.json")
-    let sourceIdentity = try PinnedAuthenticationIdentityReader(
-      authenticationFileURL: activeAuthenticationURL
-    ).currentIdentity()
-    guard
-      let sourceAccount = accounts.first(where: {
-        $0.identityHash == sourceIdentity.rawValue && Self.authenticationURL(for: $0) != nil
-      }), let sourceAuthenticationURL = authenticationURL(for: sourceAccount)
-    else {
+    let sourceData = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(
+      at: activeAuthenticationURL)
+    let sourceIdentity = try PinnedAuthenticationIdentityReader.identity(
+      fromAuthenticationData: sourceData)
+    let sourceHashes = try PinnedAuthenticationIdentityReader.identityHashes(
+      fromAuthenticationData: sourceData)
+    let matchingAccounts = accounts.filter { account in
+      account.identityHash.map { sourceHashes.contains($0) } ?? false
+    }
+    guard matchingAccounts.count == 1, let sourceAccount = matchingAccounts.first else {
       throw ExperimentalRealSwitchError.activeAccountNotConfigured
     }
-    guard sourceAuthenticationURL.standardizedFileURL != activeAuthenticationURL.standardizedFileURL
+    let onboarder = CodexManagedAccountOnboarder()
+    guard let sourceAuthenticationURL = try authenticationURL(for: sourceAccount, onboarder: onboarder)
     else {
       throw ExperimentalRealSwitchError.activeAccountNotPreserved
     }
     guard let targetHash = target.identityHash,
-      let targetIdentity = IdentityID(rawValue: targetHash),
-      let targetAuthenticationURL = authenticationURL(for: target)
+      let targetAuthenticationURL = try authenticationURL(for: target, onboarder: onboarder)
     else {
       throw ExperimentalRealSwitchError.targetAccountChanged
     }
-    guard targetAuthenticationURL.standardizedFileURL != activeAuthenticationURL.standardizedFileURL
+    let targetData = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(
+      at: targetAuthenticationURL)
+    guard
+      try PinnedAuthenticationIdentityReader.identityHashes(fromAuthenticationData: targetData)
+        .contains(targetHash)
     else {
-      throw ExperimentalRealSwitchError.activeAccountNotPreserved
+      throw ExperimentalRealSwitchError.targetAccountChanged
     }
+    let targetIdentity = try PinnedAuthenticationIdentityReader.identity(
+      fromAuthenticationData: targetData)
     guard sourceIdentity != targetIdentity else {
       throw ExperimentalRealSwitchError.sourceAndTargetMatch
-    }
-    guard
-      try PinnedAuthenticationIdentityReader(
-        authenticationFileURL: targetAuthenticationURL
-      ).currentIdentity() == targetIdentity
-    else {
-      throw ExperimentalRealSwitchError.targetAccountChanged
     }
 
     let helperURL = bundle.bundleURL
@@ -175,7 +185,7 @@ enum ExperimentalRealSwitchCoordinator {
       targetAuthenticationURL: targetAuthenticationURL,
       expectedHostTeamIdentifier: expectedTeam,
       helperURL: helperURL,
-      targetApplicationCompatibility: targetApplicationCompatibility
+      targetApplication: targetApplication
     )
   }
 
@@ -184,14 +194,30 @@ enum ExperimentalRealSwitchCoordinator {
   ) throws
     -> RealSwitchResult
   {
-    guard try validateTargetApplication() == plan.targetApplicationCompatibility else {
-      throw ExperimentalRealSwitchError.targetApplicationChanged
+    let credentialLock: TransactionLock
+    do {
+      credentialLock = try AccountCredentialLock.acquire()
+    } catch SafetyError.lockUnavailable {
+      throw ExperimentalRealSwitchError.credentialsBusy
     }
-    let managedAuthenticationURLs = try accounts.map { account in
-      guard let url = authenticationURL(for: account) else {
-        throw ExperimentalRealSwitchError.activeAccountNotConfigured
-      }
-      return url
+    defer { credentialLock.release() }
+    try validateConfirmedTargetApplication(plan.targetApplication)
+    let onboarder = CodexManagedAccountOnboarder()
+    let managedAuthenticationURLs = try accounts.compactMap {
+      try authenticationURL(for: $0, onboarder: onboarder)
+    }
+    guard managedAuthenticationURLs.contains(plan.sourceAuthenticationURL) else {
+      throw ExperimentalRealSwitchError.activeAccountNotPreserved
+    }
+    guard managedAuthenticationURLs.contains(plan.targetAuthenticationURL) else {
+      throw ExperimentalRealSwitchError.targetAccountChanged
+    }
+    let targetData = try SecureAuthenticationFileInstaller.readPrivateAuthenticationFile(
+      at: plan.targetAuthenticationURL)
+    guard try PinnedAuthenticationIdentityReader.identity(fromAuthenticationData: targetData)
+      == plan.targetIdentity
+    else {
+      throw ExperimentalRealSwitchError.targetAccountChanged
     }
 
     let transactionDirectory = try makeTransactionDirectory()
@@ -233,6 +259,7 @@ enum ExperimentalRealSwitchCoordinator {
         base: baseIdentityReader,
         targetIdentity: plan.targetIdentity
       ) : baseIdentityReader
+    var targetApplication = plan.targetApplication
     let adapter = try RealChatGPTDesktopAdapter(
       sourceIdentity: plan.sourceIdentity,
       profiles: [
@@ -252,7 +279,18 @@ enum ExperimentalRealSwitchCoordinator {
         transactionDirectoryURL: transactionDirectory
       ),
       activeAuthenticationURL: activeAuthenticationURL,
-      managedAuthenticationURLs: managedAuthenticationURLs
+      managedAuthenticationURLs: managedAuthenticationURLs,
+      preserveDepartingCredentialsAfterExit: true,
+      checkTargetApplication: { check in
+        let installed = try validateTargetApplication()
+        guard installed != targetApplication else { return }
+        // Pin a verified upgrade while the desktop is stopped, before checking the
+        // on-disk projects. Require that exact build through credential handoff.
+        guard case .afterExit = check,
+          targetApplication.compatibility.allowsUpgradeDuringShutdown(to: installed.compatibility)
+        else { throw SafetyError.targetApplicationChanged }
+        targetApplication = installed
+      }
     )
     let hostEvidence = try SystemSupervisorHostEvidenceCollector.collect(
       configuration: SupervisorHostConfiguration(
@@ -283,17 +321,13 @@ enum ExperimentalRealSwitchCoordinator {
       throw ExperimentalRealSwitchError.recoveryHelperFailed
     }
 
-    let outcome: RealSwitchOutcome
     let receiptOutcome: RealSwitchReceiptOutcome
     switch record.phase {
     case .committed:
-      outcome = .committed
       receiptOutcome = .committed
     case .rolledBack:
-      outcome = .rolledBack
       receiptOutcome = .rolledBack
     case .manualRecoveryRequired:
-      outcome = .manualRecoveryRequired
       receiptOutcome = .manualRecoveryRequired
     default:
       throw ExperimentalRealSwitchError.switchFailed
@@ -312,6 +346,8 @@ enum ExperimentalRealSwitchCoordinator {
       failureReason: record.failureReason.flatMap {
         RealSwitchReceiptFailureReason(rawValue: $0.rawValue)
       },
+      targetFailurePhase: record.targetFailurePhase,
+      recoveryFailurePhase: record.recoveryFailurePhase,
       transactionCreatedAt: record.createdAt
     )
     let receiptRecorded = (try? RealSwitchReceiptStore.defaultStore.save(receipt)) != nil
@@ -319,22 +355,23 @@ enum ExperimentalRealSwitchCoordinator {
     if record.phase != .manualRecoveryRequired {
       try? FileManager.default.removeItem(at: transactionDirectory)
     }
-    return RealSwitchResult(outcome: outcome, receiptRecorded: receiptRecorded)
+    return RealSwitchResult(receipt: receipt, receiptRecorded: receiptRecorded)
   }
 
-  private static func authenticationURL(for account: AccountRecord) -> URL? {
+  private static func authenticationURL(for account: AccountRecord, onboarder: CodexManagedAccountOnboarder)
+    throws -> URL?
+  {
     guard case .codexHome(let path) = account.source else { return nil }
-    return URL(fileURLWithPath: path, isDirectory: true)
-      .appendingPathComponent("auth.json")
-      .standardizedFileURL
+    return try onboarder.managedAuthenticationURL(for: path)
   }
 
-  private static func validateTargetApplication() throws -> ChatGPTDesktopCompatibilityAssessment {
-    guard let targetBundle = Bundle(url: targetApplicationURL),
-      targetBundle.bundleIdentifier == targetBundleIdentifier
-    else {
-      throw ExperimentalRealSwitchError.invalidTargetApplication
+  private static func validateConfirmedTargetApplication(_ expected: VerifiedTargetApplication) throws {
+    guard try validateTargetApplication() == expected else {
+      throw ExperimentalRealSwitchError.targetApplicationChanged
     }
+  }
+
+  private static func validateTargetApplication() throws -> VerifiedTargetApplication {
     var code: SecStaticCode?
     guard SecStaticCodeCreateWithPath(targetApplicationURL as CFURL, [], &code) == errSecSuccess,
       let code,
@@ -352,13 +389,19 @@ enum ExperimentalRealSwitchCoordinator {
       ) == errSecSuccess,
       let values = information as? [CFString: Any],
       values[kSecCodeInfoTeamIdentifier] as? String == targetTeamIdentifier,
-      values[kSecCodeInfoIdentifier] as? String == targetBundleIdentifier
+      values[kSecCodeInfoIdentifier] as? String == targetBundleIdentifier,
+      let codeDirectoryHash = values[kSecCodeInfoUnique] as? Data,
+      let signedInfo = values[kSecCodeInfoPList] as? [String: Any],
+      signedInfo["CFBundleIdentifier"] as? String == targetBundleIdentifier
     else {
       throw ExperimentalRealSwitchError.invalidTargetApplication
     }
-    return ChatGPTDesktopCompatibility.assessment(
-      version: targetBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-      build: targetBundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+    return VerifiedTargetApplication(
+      compatibility: ChatGPTDesktopCompatibility.assessment(
+        version: signedInfo["CFBundleShortVersionString"] as? String,
+        build: signedInfo["CFBundleVersion"] as? String
+      ),
+      codeDirectoryHash: codeDirectoryHash
     )
   }
 
@@ -393,7 +436,7 @@ enum ExperimentalRealSwitchCoordinator {
         options: []
       )
       guard existingTransactions.isEmpty else {
-        throw ExperimentalRealSwitchError.insecureStorage
+        throw ExperimentalRealSwitchError.previousSwitchRequiresReview
       }
       let transaction = transactionsRoot.appendingPathComponent(
         UUID().uuidString,
@@ -406,6 +449,8 @@ enum ExperimentalRealSwitchCoordinator {
       )
       try RecoveryTransactionPathContract.validateExistingPrivateDirectory(transaction)
       return transaction
+    } catch let error as ExperimentalRealSwitchError {
+      throw error
     } catch {
       throw ExperimentalRealSwitchError.insecureStorage
     }

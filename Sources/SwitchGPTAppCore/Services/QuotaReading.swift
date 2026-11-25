@@ -44,6 +44,13 @@ public struct ReadOnlyAccountProbe: Equatable, Sendable {
 
 public protocol ReadOnlyAccountProbing: Sendable {
   func probe(codexHomePath: String) async throws -> ReadOnlyAccountProbe
+  func probeActiveProfile(authenticationFileURL: URL) async throws -> ReadOnlyAccountProbe
+}
+
+extension ReadOnlyAccountProbing {
+  public func probeActiveProfile(authenticationFileURL: URL) async throws -> ReadOnlyAccountProbe {
+    try await probe(codexHomePath: authenticationFileURL.deletingLastPathComponent().path)
+  }
 }
 
 public enum QuotaReadingError: Error, Equatable, LocalizedError, Sendable {

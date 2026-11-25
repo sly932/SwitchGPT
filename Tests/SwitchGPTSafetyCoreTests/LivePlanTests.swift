@@ -84,16 +84,17 @@ private struct LivePlanFixture {
       at: home, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
     )
     let auth = home.appendingPathComponent("auth.json")
-    try Data("fixture authentication, no real credentials".utf8).write(to: auth)
+    try fixtureChatGPTAuthentication(email: "member@example.test").write(to: auth)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: auth.path)
     let accountResult: [String: Any] = [
-      "account": ["email": "member@example.test", "planType": "prolite"]
+      "account": ["type": "chatgpt", "email": "member@example.test", "planType": "prolite"]
     ]
     let responses: [[String: Any]] = [
       ["id": 1, "result": [:] as [String: Any]],
-      ["id": 2, "result": accountResult],
-      ["id": 3, "result": rateLimits],
-      ["id": 4, "error": ["code": -32601, "message": "Optional usage unavailable"]],
+      ["id": 2, "result": ["type": "chatgptAuthTokens"]],
+      ["id": 3, "result": accountResult],
+      ["id": 4, "result": rateLimits],
+      ["id": 5, "error": ["code": -32601, "message": "Optional usage unavailable"]],
     ]
     let cases = try responses.enumerated().map { index, response in
       let json = String(decoding: try JSONSerialization.data(withJSONObject: response), as: UTF8.self)

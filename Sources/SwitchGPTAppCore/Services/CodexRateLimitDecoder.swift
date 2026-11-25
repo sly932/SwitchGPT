@@ -57,8 +57,8 @@ public enum CodexRateLimitDecoder {
   }
 
   private static func decodeWindow(_ object: [String: Any]) throws -> DecodedWindow {
-    guard let used = number(from: object["usedPercent"]),
-      let reset = number(from: object["resetsAt"])
+    guard let used = number(from: object["usedPercent"]), used.isFinite,
+      let reset = number(from: object["resetsAt"]), reset.isFinite
     else {
       throw QuotaReadingError.invalidProtocolResponse
     }
@@ -66,7 +66,7 @@ public enum CodexRateLimitDecoder {
     let resetSeconds = reset > 10_000_000_000 ? reset / 1_000 : reset
     return DecodedWindow(
       usage: UsageWindow(
-        usedPercent: Int(used.rounded()),
+        usedPercent: Int(min(max(used.rounded(), 0), 100)),
         resetAt: Date(timeIntervalSince1970: resetSeconds)
       ),
       durationMinutes: nonnegativeInteger(from: object["windowDurationMins"])
@@ -95,6 +95,7 @@ public enum CodexRateLimitDecoder {
 
   private static func number(from value: Any?) -> Double? {
     if let number = value as? NSNumber {
+      guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
       return number.doubleValue
     }
     if let string = value as? String {
@@ -165,20 +166,15 @@ public enum CodexRateLimitDecoder {
   }
 
   private static func nonnegativeInteger(from value: Any?) -> Int? {
-    if let number = value as? NSNumber,
-      CFGetTypeID(number) == CFBooleanGetTypeID()
-    {
-      return nil
+    let integer: Int?
+    if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+      integer = Int(exactly: number)
+    } else if let string = value as? String {
+      integer = Int(string) ?? Double(string).flatMap { Int(exactly: $0) }
+    } else {
+      integer = nil
     }
-    guard let number = number(from: value),
-      number.isFinite,
-      number >= 0,
-      number.rounded(.towardZero) == number,
-      number <= Double(Int.max)
-    else {
-      return nil
-    }
-    return Int(number)
+    return integer.flatMap { $0 >= 0 ? $0 : nil }
   }
 
   private static func decimal(from value: Any?) -> Decimal? {
