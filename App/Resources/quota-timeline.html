@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>Quota Timeline</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #192635;
+    background: #fff;
+    --muted: #536579;
+    --border: #dce5ed;
+    --blue: #1b64bd;
+    --blue-wash: #eaf3ff;
+    --amber: #9c5715;
+    --amber-wash: #fff5e8;
+    --violet: #6947ac;
+    --violet-wash: #f1ebfc;
+    --width-left: 188px;
+    --axis-gutter: 42px;
+    --surface: #fff;
+    --plot: #fcfdff;
+    --axis: #f5f8fc;
+    --grid: #edf1f6;
+    --rail-color: #cad8e7;
+    --start-grid: #cfdef0;
+    --track: #edf2f7;
+    --sim-surface: #fbf8ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  [hidden] { display: none !important; }
+  button, input, output { font: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+  .content { padding: 16px clamp(14px, 3vw, 24px) 20px; }
+  .heading {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px 18px;
+    margin-bottom: 14px;
+  }
+  .subtitle, .range-dates, .footnote { margin: 0; color: var(--muted); font-size: 12px; }
+  .range { width: 258px; flex: 0 0 auto; }
+  .range-top { display: flex; align-items: center; gap: 8px; }
+  .range label { font-size: 12px; font-weight: 650; }
+  output { font-size: 14px; color: var(--blue); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .segmented { display: flex; margin-left: auto; border-radius: 7px; background: var(--track); padding: 2px; }
+  .segmented button {
+    border: 0; border-radius: 5px; background: transparent; color: var(--muted);
+    min-width: 46px; padding: 3px 8px; font-size: 12px;
+  }
+  .segmented button[aria-pressed="true"] { color: inherit; background: var(--surface); box-shadow: 0 1px 4px #19324a20; font-weight: 650; }
+  .range input { width: 100%; margin: 5px 0 3px; accent-color: var(--blue); cursor: ew-resize; }
+  .range-dates { text-align: right; font-variant-numeric: tabular-nums; }
+  .legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 17px;
+    margin: 0 0 11px; font-size: 12px; color: var(--muted);
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 7px; }
+  .key { display: inline-block; width: 8px; height: 8px; border-radius: 100%; background: var(--blue); }
+  .key.forecast { border-radius: 2px; width: 3px; height: 10px; background: #5e86b4; }
+  .key.card { background: var(--amber); border-radius: 1px; transform: rotate(45deg); }
+  .key.sim { background: var(--violet); }
+  .key.original { background: transparent; border: 1.5px solid #677589; }
+  .chart {
+    overflow: auto; border: 1px solid var(--border); border-radius: 12px;
+    position: relative; isolation: isolate;
+  }
+  .matrix { min-width: var(--matrix-width, 720px); }
+  .row { display: grid; grid-template-columns: var(--width-left) minmax(0, 1fr); }
+  .axis { height: 47px; background: var(--axis); color: var(--muted); font-size: 11px; }
+  .identity, .axis-name { position: sticky; left: 0; z-index: 2; border-right: 1px solid var(--border); }
+  .axis-name { display: flex; align-items: center; padding: 0 16px; background: var(--axis); font-weight: 650; }
+  .axis-line { position: relative; margin-inline: var(--axis-gutter); }
+  .tick { position: absolute; bottom: 0; transform: translateX(-50%); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tick::after { content: ""; width: 1px; height: 6px; margin: 3px auto 0; display: block; background: #bfcedc; }
+  .tick.start { color: var(--blue); font-weight: 680; }
+  .account-row { border-top: 1px solid var(--border); min-height: 120px; }
+  .identity { background: var(--surface); padding: 12px 16px; }
+  .account-row[data-simulated="true"] .identity { background: var(--sim-surface); }
+  .account-name { margin: 0; font-size: 14px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-meta { margin-top: 4px; font-size: 11px; color: var(--muted); }
+  .quota { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; }
+  .percent { line-height: 1; font-size: 25px; letter-spacing: -.05em; font-weight: 690; font-variant-numeric: tabular-nums; }
+  .quota small { font-size: 10px; color: var(--muted); }
+  .quota-meter { height: 5px; border-radius: 3px; margin-top: 7px; background: var(--track); overflow: hidden; }
+  .quota-meter i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+  .account-row[data-simulated="true"] .percent { color: var(--violet); }
+  .account-row[data-simulated="true"] .quota-meter i { background: var(--violet); }
+  .row-feedback { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.35; }
+  .undo {
+    display: block; margin-top: 4px; border: 0; border-radius: 3px; padding: 1px 3px;
+    background: transparent; color: var(--violet); font-size: 11px;
+  }
+  .undo:hover { background: var(--violet-wash); }
+  .timeline { min-width: 0; background: var(--plot); }
+  .axis-track { position: relative; height: 100%; min-height: 119px; margin-inline: var(--axis-gutter); --rail: 51px; }
+  .gridline { position: absolute; inset-block: 0; width: 1px; background: var(--grid); pointer-events: none; }
+  .gridline.start { background: var(--start-grid); }
+  .rail { position: absolute; inset-inline: 0; top: var(--rail); height: 2px; border-radius: 1px; background: var(--rail-color); }
+  .scenario-rail {
+    position: absolute; top: var(--rail); left: 0; height: 2px;
+    background: repeating-linear-gradient(to right, #a48bd4 0 5px, transparent 5px 9px);
+  }
+  .event { --event: var(--blue); --event-bg: var(--blue-wash); --stem: #9cbee7; }
+  .event.forecast { --event: var(--blue); --event-bg: var(--axis); --stem: #9cbee7; }
+  .event.card { --event: var(--amber); --event-bg: var(--amber-wash); --stem: #d7a96d; }
+  .event:is(.sim, .sim-forecast) { --event: var(--violet); --event-bg: var(--violet-wash); --stem: #bba7dd; }
+  .event.original { --event: var(--muted); --event-bg: var(--axis); --stem: #a6b4c3; }
+  .event.used { --event: var(--violet); --event-bg: var(--sim-surface); --stem: #bbaec8; }
+  .event-pin {
+    position: absolute; top: calc(var(--rail) + 1px); width: 7px; height: 7px;
+    border-radius: 100%; transform: translate(-50%, -50%); background: var(--event);
+    box-shadow: 0 0 0 1.5px var(--plot); z-index: 1;
+  }
+  .event.card .event-pin, .event.used .event-pin { border-radius: 1px; transform: translate(-50%, -50%) rotate(45deg); }
+  .event.card .event-pin { cursor: pointer; }
+  .event.card .event-pin::after { content: ""; position: absolute; inset: -4px; }
+  .event.original .event-pin { border: 1.5px solid var(--event); background: var(--plot); }
+  .forecast-tick {
+    position: absolute; top: calc(var(--rail) - 17px); transform: translateX(-50%);
+    display: grid; place-items: end center; width: var(--forecast-hit-area); height: 17px;
+    padding: 0; border: 0; background: transparent; z-index: 1;
+  }
+  .forecast-tick::before {
+    content: ""; width: 2px; height: 10px; border-radius: 2px; background: var(--event);
+  }
+  .forecast-tick:is(:hover, :focus-visible)::before { height: 14px; }
+  .stem { position: absolute; background: var(--stem); pointer-events: none; }
+  .event-label {
+    position: absolute; z-index: 1; transform: translateX(-50%); min-height: 25px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-radius: 5px;
+    border: 1px solid transparent; padding: 3px 6px; white-space: nowrap;
+    background: var(--event-bg); color: var(--event); font-size: 11px; line-height: 1.2; font-weight: 610;
+    font-variant-numeric: tabular-nums;
+  }
+  .event-label:hover, .event-label:focus-visible { border-color: var(--event); }
+  .event:is(.natural, .original, .sim) .event-label { width: 118px; }
+  .event:is(.forecast, .sim-forecast) .event-label { width: 52px; }
+  .event:is(.card, .used) .event-label { width: 88px; }
+  .event-label b { font-weight: 720; }
+  .event-label .small-mark { flex: 0 0 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .event.card .small-mark, .event.used .small-mark { border-radius: 1px; transform: rotate(45deg); }
+  .event.original .small-mark { background: transparent; border: 1px solid currentColor; }
+  .event.used .event-label { text-decoration: line-through; }
+  .card-list-note { position: absolute; top: 100px; left: 0; color: var(--muted); font-size: 10px; }
+  .reset-note { position: absolute; top: 18px; left: 0; color: var(--muted); font-size: 11px; }
+  .footnote { margin-top: 12px; }
+  .empty { color: var(--muted); margin: 30px 0; text-align: center; }
+  .tooltip {
+    position: fixed; z-index: 10; max-width: min(290px, calc(100vw - 16px)); padding: 9px 12px;
+    background: #1d3045; color: #fff; border-radius: 8px; box-shadow: 0 7px 20px #1a2c4645;
+    font-size: 12px; line-height: 1.5; pointer-events: none;
+  }
+  .tooltip strong { display: block; margin-bottom: 3px; }
+  .tooltip span { color: #e1eaf5; display: block; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  @media (max-width: 660px) {
+    :root { --width-left: 138px; --axis-gutter: 41px; }
+    .range { width: min(100%, 230px); }
+    .content { padding-inline: 12px; }
+    .axis-name, .identity { padding-inline: 10px; }
+    .account-name { font-size: 13px; }
+  }
+  @media (max-width: 430px) {
+    .heading { flex-wrap: wrap; }
+    .range { margin-left: auto; }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color: #e7edf5;
+      background: #202124;
+      --muted: #acb9c9;
+      --border: #3a424e;
+      --blue: #8fbbfb;
+      --blue-wash: #233b5b;
+      --amber: #f1ba76;
+      --amber-wash: #483525;
+      --violet: #c6acf6;
+      --violet-wash: #45365c;
+      --surface: #22242a;
+      --plot: #23272f;
+      --axis: #282e38;
+      --grid: #2f3642;
+      --rail-color: #505c6d;
+      --start-grid: #47566c;
+      --track: #313947;
+      --sim-surface: #2d2738;
+    }
+  }
+</style>
+</head>
+<body>
+<main class="content">
+  <p id="empty" class="empty" data-copy="loading"></p>
+  <div id="timeline-content" hidden>
+    <div class="heading">
+      <p class="subtitle" id="snapshot-time"></p>
+      <div class="range">
+        <div class="range-top">
+          <label for="range" data-copy="range"></label>
+          <output id="range-value" for="range"></output>
+          <div class="segmented" role="group" data-label="unit">
+            <button type="button" data-unit="day" aria-pressed="true" data-copy="days"></button>
+            <button type="button" data-unit="month" aria-pressed="false" data-copy="months"></button>
+          </div>
+        </div>
+        <input id="range" type="range" min="1" max="90" value="35" step="1">
+        <p id="range-dates" class="range-dates"></p>
+      </div>
+    </div>
+    <div class="legend" data-label="legend">
+      <span class="legend-item"><i class="key"></i><span data-copy="knownReset"></span></span>
+      <span class="legend-item"><i class="key forecast"></i><span data-copy="estimatedReset"></span></span>
+      <span class="legend-item"><i class="key card"></i><span data-copy="cardExpiry"></span></span>
+      <span class="legend-item simulation-key" hidden><i class="key sim"></i><span data-copy="simulationCycle"></span></span>
+      <span class="legend-item simulation-key" hidden><i class="key original"></i><span data-copy="originalReset"></span></span>
+    </div>
+    <div id="chart" class="chart" role="region" tabindex="0" data-label="chart">
+      <div id="matrix" class="matrix"></div>
+    </div>
+    <p class="footnote"><span id="scroll-hint" data-copy="scrollHint" hidden></span> <span data-copy="footnote"></span></p>
+  </div>
+</main>
+<div class="tooltip" id="tooltip" hidden aria-hidden="true"></div>
+<div class="sr-only" id="announcement" role="status"></div>
+<script>
+  const $ = (selector) => document.querySelector(selector);
+  const matrix = $('#matrix');
+  const slider = $('#range');
+  const day = 86400000;
+  const week = 7 * day;
+  const chinaOffset = 8 * 3600000;
+  let snapshot = null;
+  let snapshotKey = null;
+  let start;
+  let projectedReset;
+  let language = 'en';
+  const simulation = new Map();
+  const feedback = new Map();
+  const ranges = { day: 35, month: 2 };
+  let unit = 'day';
+  let tooltipAnchor = null;
+
+  const copy = {
+    title: ['账号额度图', 'Quota Timeline'],
+    loading: ['正在读取额度快照…', 'Loading quota snapshot…'],
+    empty: ['暂无 Pro 100 或 Pro 200 账号。', 'No Pro 100 or Pro 200 accounts.'],
+    range: ['时间范围', 'Range'],
+    unit: ['时间单位', 'Time unit'],
+    days: ['天', 'Days'],
+    months: ['月', 'Months'],
+    legend: ['时间轴图例', 'Timeline legend'],
+    knownReset: ['已知下次重置', 'Known next reset'],
+    estimatedReset: ['预计自然重置', 'Projected natural reset'],
+    cardExpiry: ['重置卡过期', 'Reset card expiry'],
+    simulationCycle: ['模拟后重置周期', 'Simulated reset cycle'],
+    originalReset: ['原重置（对照）', 'Original reset'],
+    chart: ['账号额度时间轴，可横向滚动', 'Account quota timeline, horizontally scrollable'],
+    scrollHint: ['横向滑动查看完整时间轴。', 'Scroll horizontally to see the full timeline.'],
+    footnote: ['后续重置每隔 7 天推算。悬停查看时间，点击卡片按图上快照模拟。',
+      'Future resets are projected every seven days. Hover for dates or select a card to simulate from this snapshot.'],
+  };
+  const localized = (zh, en) => language === 'zh-Hans' ? zh : en;
+
+  function localizeControls() {
+    document.documentElement.lang = language;
+    document.title = localized(...copy.title);
+    document.querySelectorAll('[data-copy]').forEach((element) => {
+      element.textContent = localized(...copy[element.dataset.copy]);
+    });
+    document.querySelectorAll('[data-label]').forEach((element) => {
+      element.setAttribute('aria-label', localized(...copy[element.dataset.label]));
+    });
+  }
+
+  const calendar = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+  function formatTime(value, exact = false) {
+    const parts = Object.fromEntries(calendar.formatToParts(value).map(({ type, value }) => [type, value]));
+    if (exact) return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+    return `${Number(parts.month)}/${Number(parts.day)} ${parts.hour}:${parts.minute}`;
+  }
+  const dateLabel = (value, showYear = false) => formatTime(value, showYear).split(' ')[0];
+  const yearOf = (value) => new Date(value + chinaOffset).getUTCFullYear();
+
+  function monthsAfter(timestamp, amount) {
+    const local = new Date(timestamp + chinaOffset);
+    const date = local.getUTCDate();
+    local.setUTCDate(1);
+    local.setUTCMonth(local.getUTCMonth() + amount);
+    const lastDay = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth() + 1, 0)).getUTCDate();
+    local.setUTCDate(Math.min(date, lastDay));
+    return local.getTime() - chinaOffset;
+  }
+  function intervalEnd() {
+    return unit === 'day' ? start + ranges.day * day : monthsAfter(start, ranges.month);
+  }
+  function create(tag, classes, value) {
+    const element = document.createElement(tag);
+    if (classes) element.className = classes;
+    if (value !== undefined) element.textContent = value;
+    return element;
+  }
+  const px = (number) => `${number}px`;
+  function place(element, left, top, width, height) {
+    Object.assign(element.style, { left: px(left), top: px(top), width: px(width), height: px(height) });
+  }
+  function axisTicks(end) {
+    if (unit === 'month') {
+      const step = ranges.month > 6 ? 2 : 1;
+      const ticks = [start];
+      for (let i = step; i < ranges.month; i += step) {
+        if (ranges.month - i >= step) ticks.push(monthsAfter(start, i));
+      }
+      if (ranges.month === 1) ticks.push(start + 14 * day);
+      return [...ticks, end];
+    }
+    const days = ranges.day;
+    if (days === 1) return [start, start + day / 2, end];
+    const step = [1, 2, 3, 5, 7, 10, 14, 21, 30].find((value) => days / value <= 6);
+    const ticks = [start];
+    for (let i = step; i < days; i += step) {
+      if (days - i >= step * .58) ticks.push(start + i * day);
+    }
+    return [...ticks, end];
+  }
+  function labelTick(time, index, end) {
+    if (index === 0) return localized(`起点 ${dateLabel(time)}`, `Start ${dateLabel(time)}`);
+    if (unit === 'day' && ranges.day === 1) return formatTime(time);
+    if (time === end && dateLabel(time) === dateLabel(start)) return dateLabel(time, true);
+    return dateLabel(time);
+  }
+
+  function simulationBlock(account) {
+    if (account.failed || !Number.isFinite(account.remaining)) {
+      return localized('暂无当前周额度，刷新成功后可模拟用卡。', 'Current weekly quota is unavailable. Refresh successfully to simulate a reset.');
+    }
+    if (account.remaining >= 80) {
+      return localized('周额度低于 80% 时可模拟用卡。', 'Simulation requires less than 80% weekly quota remaining.');
+    }
+    return null;
+  }
+
+  function laneEvents(account, selected, end) {
+    const resetTime = Date.parse(account.resetAt);
+    const isSimulated = selected !== undefined;
+    const natural = {
+      type: isSimulated ? 'original' : 'natural', time: resetTime,
+      prefix: isSimulated ? localized('原', 'Prior') : localized('自然', 'Next'),
+      title: isSimulated ? localized('原定自然重置', 'Original natural reset') : localized('自然重置', 'Natural reset'),
+      hint: isSimulated ? localized('模拟的新周周期取代这个节点。', 'The simulated weekly cycle replaces this reset.')
+        : localized('SwitchGPT 返回的下次自然重置时间。', 'The next natural reset returned by SwitchGPT.'),
+    };
+    const upper = Number.isFinite(resetTime) ? [natural] : [];
+    if (isSimulated) {
+      upper.push({
+        type: 'sim', time: projectedReset, prefix: localized('预计', 'Est.'),
+        title: localized('模拟后的下次重置', 'Next simulated reset'),
+        hint: localized('以快照时刻起算 7 天。真实时间以用量页为准。',
+          'Estimated seven days from the snapshot. See Usage for actual dates.'),
+      });
+    }
+    const firstReset = isSimulated ? projectedReset : resetTime;
+    const firstProjection = firstReset + Math.max(1, Math.ceil((start - firstReset) / week)) * week;
+    for (let time = firstProjection; time <= end; time += week) {
+      upper.push({
+        type: isSimulated ? 'sim-forecast' : 'forecast', time, forecast: true,
+        title: isSimulated ? localized('模拟后的预计自然重置', 'Projected reset after simulation')
+          : localized(...copy.estimatedReset),
+        hint: isSimulated ? localized('按模拟后的新周期，每 7 天推算。', 'Projected every seven days from the simulated cycle.')
+          : localized('从已知自然重置时间起，每 7 天推算。', 'Projected every seven days from the known reset time.'),
+      });
+    }
+    const lower = account.cards.map((expiry, index) => ({
+      time: Date.parse(expiry), index,
+      type: index === selected ? 'used' : 'card',
+      title: index === selected ? localized('已模拟使用的重置卡', 'Card used in simulation') : localized(...copy.cardExpiry),
+      hint: index === selected ? localized('这张卡在本次模拟中已使用。', 'This card was used in the simulation.')
+        : selected !== undefined ? localized('改用此卡，仍从原始快照模拟。', 'Switch to this card and resimulate from the original snapshot.')
+        : simulationBlock(account) ?? localized('点击模拟在快照时刻使用此卡。', 'Select to simulate using this card at the snapshot time.'),
+    })).filter(({ time }) => Number.isFinite(time));
+    return { upper, lower };
+  }
+
+  function bindEvent(button, event, accountIndex) {
+    const stamp = formatTime(event.time, true);
+    button.type = 'button';
+    button.setAttribute('aria-label', [event.title, stamp, event.hint].join(localized('，', ', ')));
+    button.dataset.eventType = event.type;
+    button.dataset.eventTime = String(event.time);
+    if (event.index !== undefined) button.dataset.cardIndex = String(event.index);
+    button.addEventListener('pointerenter', () => showTooltip(button, event, stamp));
+    button.addEventListener('pointerleave', () => { if (document.activeElement !== button) hideTooltip(); });
+    button.addEventListener('focus', () => showTooltip(button, event, stamp));
+    button.addEventListener('blur', hideTooltip);
+    button.addEventListener('click', () => {
+      if (event.type === 'card') simulate(accountIndex, event.index);
+      else showTooltip(button, event, stamp);
+    });
+    return stamp;
+  }
+
+  function drawEvent(track, event, x, center, top, above, accountIndex) {
+    const node = create('div', `event ${event.type}`);
+    if (center === null) {
+      const tick = create('button', 'forecast-tick');
+      tick.style.left = px(x);
+      bindEvent(tick, event, accountIndex);
+      node.append(tick);
+      track.append(node);
+      return;
+    }
+    const pin = create('span', 'event-pin');
+    pin.style.left = px(x);
+    pin.setAttribute('aria-hidden', 'true');
+    const label = create('button', 'event-label');
+    label.style.left = px(center);
+    label.style.top = px(top);
+    const marker = create('i', 'small-mark');
+    marker.setAttribute('aria-hidden', 'true');
+    label.append(marker);
+    if (event.prefix) label.append(create('b', '', event.prefix));
+    label.append(create('span', '', event.forecast ? dateLabel(event.time) : formatTime(event.time)));
+    const stamp = bindEvent(label, event, accountIndex);
+    if (event.type === 'card') {
+      pin.addEventListener('pointerenter', () => showTooltip(pin, event, stamp));
+      pin.addEventListener('pointerleave', hideTooltip);
+      pin.addEventListener('click', () => simulate(accountIndex, event.index));
+    }
+    const jog = above ? 42 : 65;
+    const labelEdge = above ? top + 25 : top;
+    const stems = Array.from({ length: 3 }, () => create('i', 'stem'));
+    place(stems[0], x - .5, Math.min(52, jog), 1, Math.abs(52 - jog));
+    place(stems[1], Math.min(x, center), jog, Math.abs(x - center), 1);
+    place(stems[2], center - .5, Math.min(jog, labelEdge), 1, Math.abs(labelEdge - jog));
+    node.append(...stems, pin, label);
+    track.append(node);
+  }
+
+  function drawEvents(track, events, end, width, above, accountIndex) {
+    const spacing = above ? 126 : 96;
+    const edge = above ? 24 : 10;
+    const visible = events.filter(({ time }) => time >= start && time <= end).sort((a, b) => a.time - b.time);
+    const placed = visible.map((event) => ({
+      event,
+      x: width * (event.time - start) / (end - start),
+      center: null,
+    }));
+    const labeled = placed.filter(({ event }) => !event.forecast);
+    let minimum = edge;
+    for (const item of labeled) {
+      item.center = Math.max(minimum, item.x);
+      minimum = item.center + spacing;
+    }
+    let maximum = width - edge;
+    for (let i = labeled.length - 1; i >= 0; i -= 1) {
+      const item = labeled[i];
+      item.center = Math.min(maximum, item.center);
+      maximum = item.center - spacing;
+    }
+    if (above) {
+      const weekSpacing = width * week / (end - start);
+      track.style.setProperty('--forecast-hit-area', px(Math.min(22, weekSpacing - 1)));
+      if (weekSpacing >= 58) {
+        const occupied = labeled.map(({ center }) => ({ center, halfWidth: 118 / 2 }));
+        for (const item of placed.filter(({ event }) => event.forecast)) {
+          const center = Math.min(width, Math.max(0, item.x));
+          if (occupied.some((label) => Math.abs(label.center - center) < label.halfWidth + 32)) continue;
+          item.center = center;
+          occupied.push({ center, halfWidth: 52 / 2 });
+        }
+      }
+    }
+    for (const { event, x, center } of placed) {
+      drawEvent(track, event, x, center, above ? 12 : 74, above, accountIndex);
+    }
+  }
+
+  function buildRow(account, index, end, ticks) {
+    const selected = simulation.get(index);
+    const isSimulated = selected !== undefined;
+    const remaining = isSimulated ? 100 : account.remaining;
+    const row = create('section', 'row account-row');
+    row.dataset.account = String(index);
+    row.dataset.simulated = String(isSimulated);
+    row.setAttribute('aria-label', account.name);
+    const identity = create('div', 'identity');
+    const cardsLeft = Math.max(0, account.cardCount - Number(isSimulated));
+    const cardText = !Number.isFinite(account.cardCount) ? localized('卡数未知', 'Card count unknown')
+      : isSimulated ? localized(`${cardsLeft} 张模拟剩余卡`, `${cardsLeft} shown after simulation`)
+      : localized(`${cardsLeft} 张重置卡`, `${cardsLeft} reset ${cardsLeft === 1 ? 'card' : 'cards'}`);
+    const meta = `${account.plan} · ${cardText}`;
+    const quota = create('div', 'quota');
+    quota.append(
+      create('strong', 'percent', Number.isFinite(remaining) ? `${remaining}%` : '–'),
+      create('small', '', isSimulated ? localized('模拟周剩余', 'Simulated weekly left') : localized('周额度剩余', 'Weekly left')),
+    );
+    const meter = create('div', 'quota-meter');
+    meter.setAttribute('aria-hidden', 'true');
+    const fill = create('i');
+    fill.style.width = Number.isFinite(remaining) ? `${remaining}%` : '0%';
+    meter.append(fill);
+    const name = create('h2', 'account-name', account.name);
+    name.title = account.name;
+    identity.append(name, create('div', 'account-meta', meta), quota, meter);
+    if (isSimulated) {
+      const undo = create('button', 'undo', localized('撤销模拟', 'Undo simulation'));
+      undo.type = 'button';
+      undo.addEventListener('click', () => clearSimulation(index));
+      identity.append(create('div', 'row-feedback', localized(
+        `原周额度 ${account.remaining}%`, `Original weekly quota ${account.remaining}%`)), undo);
+    } else {
+      const notice = [];
+      if (account.failed) {
+        notice.push(Number.isFinite(remaining)
+          ? localized('刷新失败，显示上次数据', 'Refresh failed. Showing previous data')
+          : localized('刷新失败，暂无额度数据', 'Refresh failed. Quota unavailable'));
+        const refreshedAt = Date.parse(account.refreshedAt);
+        if (Number.isFinite(refreshedAt)) notice.push(formatTime(refreshedAt));
+      }
+      if (feedback.has(index)) notice.push(simulationBlock(account));
+      if (notice.length) identity.append(create('div', 'row-feedback', notice.join(' · ')));
+    }
+
+    const timeline = create('div', 'timeline');
+    const track = create('div', 'axis-track');
+    timeline.append(track);
+    row.append(identity, timeline);
+    matrix.append(row);
+    const width = track.clientWidth;
+    ticks.forEach((time, tickIndex) => {
+      const line = create('div', tickIndex === 0 ? 'gridline start' : 'gridline');
+      line.style.left = px(width * (time - start) / (end - start));
+      track.append(line);
+    });
+    track.append(create('div', 'rail'));
+    if (isSimulated) {
+      const rail = create('div', 'scenario-rail');
+      rail.style.width = px(width * Math.min(1, (projectedReset - start) / (end - start)));
+      track.append(rail);
+    }
+    const { upper, lower } = laneEvents(account, selected, end);
+    drawEvents(track, upper, end, width, true, index);
+    drawEvents(track, lower, end, width, false, index);
+    if (!upper.length) {
+      track.append(create('span', 'reset-note', localized('下次重置时间未知', 'Next reset time unknown')));
+    }
+    const outside = lower.filter(({ type, time }) => type !== 'used' && time > end).length;
+    const missingDates = account.cardCount - lower.length;
+    const cardNotes = [];
+    if (outside) cardNotes.push(localized(`另有 ${outside} 张卡在此范围外`, `${outside} outside the range`));
+    if (missingDates > 0) cardNotes.push(localized(`${missingDates} 张卡到期时间未知`, `${missingDates} without an expiry date`));
+    if (cardNotes.length) track.append(create('span', 'card-list-note', cardNotes.join(' · ')));
+  }
+
+  function render() {
+    hideTooltip();
+    const hasData = Number.isFinite(start) && snapshot?.accounts.length > 0;
+    $('#empty').hidden = hasData;
+    $('#empty').textContent = localized(...(snapshot ? copy.empty : copy.loading));
+    $('#timeline-content').hidden = !hasData;
+    if (!hasData) {
+      matrix.replaceChildren();
+      return;
+    }
+    const end = intervalEnd();
+    const ticks = axisTicks(end);
+    const range = ranges[unit];
+    const unitName = unit === 'day' ? localized('天', range === 1 ? 'day' : 'days') : localized('个月', range === 1 ? 'month' : 'months');
+    $('#range-value').value = `${range} ${unitName}`;
+    const crossesYear = yearOf(start) !== yearOf(end);
+    $('#range-dates').textContent = [dateLabel(start, crossesYear), dateLabel(end, crossesYear)].join(localized(' 至 ', ' – '));
+    $('#snapshot-time').textContent = localized(
+      `Work / Codex · 数据截至 ${formatTime(start, true)} · 北京时间`,
+      `Work / Codex · Snapshot at ${formatTime(start, true)} · Beijing time`);
+    slider.setAttribute('aria-valuetext', $('#range-value').value);
+    document.querySelectorAll('.simulation-key').forEach((item) => { item.hidden = simulation.size === 0; });
+    const visibleCardCount = Math.max(...snapshot.accounts.map(({ cards }) => cards.filter((card) => {
+      const expiry = Date.parse(card);
+      return expiry >= start && expiry <= end;
+    }).length));
+    const cardWidth = Math.max(0, visibleCardCount - 1) * 96 + 20;
+    matrix.style.setProperty('--matrix-width', `max(720px, calc(${cardWidth}px + var(--width-left) + var(--axis-gutter) + var(--axis-gutter)))`);
+    const axis = create('div', 'row axis');
+    const axisLine = create('div', 'axis-line');
+    axis.append(create('div', 'axis-name', localized('账号 / 周额度', 'Account / Weekly quota')), axisLine);
+    matrix.replaceChildren(axis);
+    ticks.forEach((time, index) => {
+      const tick = create('span', index === 0 ? 'tick start' : 'tick', labelTick(time, index, end));
+      tick.style.left = `${100 * (time - start) / (end - start)}%`;
+      axisLine.append(tick);
+    });
+    snapshot.accounts.forEach((account, index) => buildRow(account, index, end, ticks));
+    const chart = $('#chart');
+    $('#scroll-hint').hidden = chart.scrollWidth <= chart.clientWidth;
+  }
+
+  function simulate(index, cardIndex) {
+    const account = snapshot.accounts[index];
+    const blocked = simulationBlock(account);
+    if (blocked) {
+      feedback.set(index, true);
+      render();
+      $(`[data-account="${index}"] [data-card-index="${cardIndex}"]`)?.focus({ preventScroll: true });
+      $('#announcement').textContent = `${account.name}. ${blocked}`;
+      return;
+    }
+    simulation.set(index, cardIndex);
+    render();
+    document.querySelector(`[data-account="${index}"] .undo`)?.focus({ preventScroll: true });
+    $('#announcement').textContent = localized(
+      `${account.name} 模拟周额度 100%，预计下次重置 ${formatTime(projectedReset)}。`,
+      `${account.name}: simulated weekly quota 100%. Estimated next reset ${formatTime(projectedReset)}.`);
+  }
+
+  function clearSimulation(index) {
+    const cardIndex = simulation.get(index);
+    simulation.delete(index);
+    render();
+    const account = snapshot.accounts[index];
+    const card = $(`[data-account="${index}"] [data-card-index="${cardIndex}"]`);
+    (card || slider).focus({ preventScroll: true });
+    $('#announcement').textContent = localized(
+      `${account.name} 已撤销模拟，快照周额度为 ${account.remaining}%。`,
+      `${account.name}: simulation undone. Weekly quota at the snapshot was ${account.remaining}%.`);
+  }
+
+  function showTooltip(anchor, event, stamp) {
+    const tooltip = $('#tooltip');
+    tooltip.replaceChildren(create('strong', '', event.title),
+      create('span', '', localized(`${stamp} 北京时间`, `${stamp} Beijing time`)), create('span', '', event.hint));
+    tooltip.hidden = false;
+    tooltipAnchor = anchor;
+    const box = anchor.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - tooltip.offsetWidth - 8, Math.max(8, box.left));
+    const above = box.top - tooltip.offsetHeight - 8;
+    const below = box.bottom + 8;
+    const preferBelow = ['card', 'used'].includes(event.type) && below + tooltip.offsetHeight < window.innerHeight - 8;
+    tooltip.style.left = px(left);
+    tooltip.style.top = px(preferBelow || above <= 8 ? Math.min(window.innerHeight - tooltip.offsetHeight - 8, below) : above);
+  }
+  function hideTooltip() {
+    if (tooltipAnchor) $('#tooltip').hidden = true;
+    tooltipAnchor = null;
+  }
+
+  slider.addEventListener('input', () => {
+    ranges[unit] = Number(slider.value);
+    render();
+  });
+  document.querySelectorAll('[data-unit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      unit = button.dataset.unit;
+      slider.max = unit === 'day' ? 90 : 12;
+      slider.value = ranges[unit];
+      document.querySelectorAll('[data-unit]').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+      render();
+    });
+  });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hideTooltip(); });
+  document.addEventListener('scroll', hideTooltip, { capture: true, passive: true });
+  let drawnWidth = 0;
+  new ResizeObserver(([entry]) => {
+    if (entry.contentRect.width === drawnWidth) return;
+    drawnWidth = entry.contentRect.width;
+    const focused = document.activeElement?.closest('[data-event-type], .undo');
+    const row = focused?.closest('[data-account]');
+    const rowSelector = row && `[data-account="${row.dataset.account}"]`;
+    render();
+    if (focused?.classList.contains('undo')) {
+      $(`${rowSelector} .undo`)?.focus({ preventScroll: true });
+    } else if (focused) {
+      $(`${rowSelector} [data-event-type="${focused.dataset.eventType}"][data-event-time="${focused.dataset.eventTime}"]`)?.focus({ preventScroll: true });
+    }
+  }).observe($('#chart'));
+  window.updateQuotaTimeline = (next) => {
+    const key = JSON.stringify([next.asOf, next.accounts.map((account) => [
+      account.name, account.plan, account.remaining, account.resetAt, account.cardCount,
+      account.cards, account.failed, account.refreshedAt,
+    ])]);
+    const nextLanguage = next.language === 'zh-Hans' ? 'zh-Hans' : 'en';
+    if (key === snapshotKey && nextLanguage === language) return;
+    if (key !== snapshotKey) {
+      simulation.clear();
+      feedback.clear();
+      $('#announcement').textContent = '';
+    }
+    snapshot = next;
+    snapshotKey = key;
+    start = Date.parse(snapshot.asOf);
+    projectedReset = start + week;
+    language = nextLanguage;
+    localizeControls();
+    render();
+  };
+  localizeControls();
+  render();
+</script>
+</body>
+</html>
