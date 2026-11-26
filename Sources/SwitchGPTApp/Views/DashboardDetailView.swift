@@ -14,6 +14,7 @@ struct DashboardDetailView: View {
 
   @Environment(\.colorScheme) private var colorScheme
   @State private var refreshFeedback: RefreshFeedback = .idle
+  @State private var refreshTask: Task<Void, Never>?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -61,6 +62,9 @@ struct DashboardDetailView: View {
       }
     }
     .background(ChatGPTStyle.surface(for: colorScheme))
+    .onDisappear {
+      refreshTask?.cancel()
+    }
   }
 
   private var topBar: some View {
@@ -150,9 +154,10 @@ struct DashboardDetailView: View {
 
   private func refreshUsage() {
     guard !isRefreshing, !store.activity.isBusy else { return }
+    refreshTask?.cancel()
     refreshFeedback = .refreshing
 
-    Task { @MainActor in
+    refreshTask = Task { @MainActor in
       // Yield a frame before the reader starts. This gives the user visible feedback
       // even when a cached or local response completes immediately.
       try? await Task.sleep(for: .milliseconds(120))

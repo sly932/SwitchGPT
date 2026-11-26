@@ -49,13 +49,6 @@ struct SwitchGPTSidebar: View {
         .padding(.top, 12)
 
         SidebarActionRow(
-          title: "Quota Timeline",
-          symbol: "chart.line.uptrend.xyaxis",
-          action: { section = .quotaTimeline },
-          isSelected: section == .quotaTimeline
-        )
-
-        SidebarActionRow(
           title: "Usage Plan",
           symbol: "calendar.badge.clock",
           action: { section = .usagePlan },

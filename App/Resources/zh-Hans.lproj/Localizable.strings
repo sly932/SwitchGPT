@@ -251,8 +251,6 @@
 "Manually recorded" = "手动登记";
 "Enter a valid date in YYYY-MM-DD format." = "请输入有效日期，格式为 YYYY-MM-DD。";
 "Reload plan" = "重新载入计划";
-"Quota Timeline" = "账号额度图";
-"Unable to display the quota timeline." = "无法显示账号额度图。";
 "Open HTML" = "打开 HTML";
 "No saved usage plan" = "尚无已保存的使用计划";
 "Run the switchgpt-usage-plan skill to create or update your local plan." = "运行 switchgpt-usage-plan 技能，创建或更新本地计划。";

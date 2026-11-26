@@ -57,8 +57,6 @@
 "Manually recorded" = "Manually recorded";
 "Enter a valid date in YYYY-MM-DD format." = "Enter a valid date in YYYY-MM-DD format.";
 "Reload plan" = "Reload plan";
-"Quota Timeline" = "Quota Timeline";
-"Unable to display the quota timeline." = "Unable to display the quota timeline.";
 "Open HTML" = "Open HTML";
 "No saved usage plan" = "No saved usage plan";
 "Run the switchgpt-usage-plan skill to create or update your local plan." = "Run the switchgpt-usage-plan skill to create or update your local plan.";
