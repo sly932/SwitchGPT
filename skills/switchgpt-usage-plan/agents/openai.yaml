@@ -1,0 +1,3 @@
+interface:
+  display_name: "SwitchGPT 使用计划"
+  short_description: "依据实时账号额度、重置卡和预算，更新本地使用计划与离线时间表"

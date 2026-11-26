@@ -1,0 +1,1470 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>SwitchGPT · 使用计划</title>
+    <style>
+      :root {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+        color: #20252d;
+        background: #f4f6f9;
+        --blue: #087cf0;
+        --muted: #737d8c;
+        --line: #e7ebf0;
+        --card: #fff;
+        --soft: #f5f7fa;
+        --sidebar: #f0f2f5;
+        --green: #248965;
+        --orange: #c67621;
+        --purple: #8364c5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid #4799f5;
+        outline-offset: 3px;
+      }
+      button:disabled {
+        cursor: default;
+      }
+      .app {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+      .sidebar {
+        padding: 26px 18px;
+        background: var(--sidebar);
+        border-right: 1px solid var(--line);
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow: auto;
+      }
+      .traffic {
+        display: flex;
+        gap: 8px;
+        margin: 0 12px 32px;
+      }
+      .traffic i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #c5c9cf;
+        box-shadow: inset 0 0 0 1px #0000000a;
+      }
+      .brand {
+        display: flex;
+        gap: 11px;
+        align-items: center;
+        padding: 0 12px;
+        margin-bottom: 24px;
+        font-weight: 650;
+        font-size: 16px;
+        letter-spacing: -0.4px;
+      }
+      .brand-mark {
+        background: #fff;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        color: var(--blue);
+        font-size: 20px;
+      }
+      .nav {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        color: inherit;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-radius: 9px;
+        padding: 11px 13px;
+        margin: 3px 0;
+        font-weight: 550;
+      }
+      .nav .icon {
+        color: var(--blue);
+        font-size: 20px;
+        width: 23px;
+        text-align: center;
+      }
+      .nav.active {
+        background: #dceafa;
+        color: #0768cf;
+      }
+      .nav.demo-action {
+        color: var(--muted);
+      }
+      .section-label {
+        font-size: 11px;
+        letter-spacing: 1.3px;
+        color: var(--muted);
+        font-weight: 650;
+        margin: 28px 13px 10px;
+      }
+      .account-button {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        display: flex;
+        gap: 10px;
+        text-align: left;
+        align-items: center;
+        border-radius: 10px;
+        padding: 11px 12px;
+        color: inherit;
+      }
+      .account-button:hover {
+        background: #ffffff7a;
+      }
+      .avatar {
+        width: 31px;
+        height: 31px;
+        background: #e3e8ef;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        font-weight: 650;
+        color: #637389;
+      }
+      .account-copy {
+        min-width: 0;
+        flex: 1;
+      }
+      .account-name {
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .account-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+      .account-mini-bar {
+        height: 3px;
+        margin-top: 6px;
+        background: #dce2e9;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .account-mini-bar span {
+        display: block;
+        background: var(--blue);
+        height: 100%;
+        border-radius: 3px;
+      }
+      .side-foot {
+        margin: 26px 12px 8px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .main {
+        padding: 36px 48px 56px;
+        max-width: 1320px;
+        width: 100%;
+        margin: auto;
+      }
+      .eyebrow {
+        font-size: 11px;
+        font-weight: 650;
+        color: var(--blue);
+        letter-spacing: 1.5px;
+        margin: 1px 0 7px;
+      }
+      .titlebar {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 18px;
+      }
+      .titlebar h1 {
+        font-size: 30px;
+        letter-spacing: -1px;
+        line-height: 1.25;
+        margin: 0;
+        font-weight: 700;
+      }
+      .subtitle {
+        color: var(--muted);
+        margin: 10px 0 0;
+        max-width: 690px;
+        font-size: 13px;
+      }
+      .header-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .button {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--card);
+        color: inherit;
+        padding: 8px 12px;
+        font-weight: 550;
+        font-size: 12px;
+      }
+      .button:hover {
+        border-color: #a8bdd3;
+      }
+      .button.primary {
+        background: var(--blue);
+        color: white;
+        border-color: var(--blue);
+      }
+      .demo-banner {
+        background: #fff6df;
+        border: 1px solid #f0e2b7;
+        color: #947323;
+        padding: 9px 13px;
+        font-size: 12px;
+        border-radius: 9px;
+        margin-top: 20px;
+      }
+      .notice {
+        padding: 12px 15px;
+        background: #eef5fd;
+        border: 1px solid #d6e7fa;
+        border-radius: 10px;
+        margin-top: 20px;
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        color: #4a6684;
+        font-size: 12px;
+      }
+      .notice.warning {
+        background: #fff6e8;
+        border-color: #f0dfbe;
+        color: #936e39;
+      }
+      .notice-icon {
+        font-size: 16px;
+        line-height: 1.2;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 13px;
+        margin: 24px 0;
+      }
+      .stat {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        padding: 17px 19px;
+      }
+      .stat-label {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .stat-value {
+        font-size: 24px;
+        letter-spacing: -0.8px;
+        font-weight: 650;
+        margin: 6px 0 3px;
+        line-height: 1.2;
+      }
+      .stat-value small {
+        font-size: 13px;
+        font-weight: 450;
+        letter-spacing: 0;
+        color: var(--muted);
+      }
+      .stat-detail {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .budget-track {
+        height: 4px;
+        border-radius: 4px;
+        background: var(--line);
+        margin-top: 11px;
+        overflow: hidden;
+      }
+      .budget-track span {
+        display: block;
+        background: var(--blue);
+        height: 100%;
+      }
+      .workspace {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        overflow: hidden;
+      }
+      .toolbar {
+        padding: 17px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .tabs {
+        display: flex;
+        gap: 4px;
+        background: var(--soft);
+        padding: 3px;
+        border-radius: 8px;
+      }
+      .tab {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+      }
+      .tab.active {
+        background: var(--card);
+        color: #273444;
+        box-shadow: 0 1px 3px #23344913;
+        font-weight: 600;
+      }
+      .search-wrap {
+        position: relative;
+        flex: 0 1 220px;
+      }
+      .search-wrap span {
+        position: absolute;
+        left: 10px;
+        top: 6px;
+        color: var(--muted);
+      }
+      .search {
+        width: 100%;
+        border: 1px solid var(--line);
+        background: var(--soft);
+        border-radius: 8px;
+        color: inherit;
+        padding: 7px 10px 7px 30px;
+        font-size: 12px;
+      }
+      .timeline-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 17px 23px 6px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .toggle-label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+      }
+      .toggle-label input {
+        accent-color: var(--blue);
+      }
+      .timeline {
+        padding: 0 24px 20px;
+      }
+      .day-group {
+        margin: 10px 0 24px;
+      }
+      .day-heading {
+        font-size: 13px;
+        font-weight: 650;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 18px 0 13px;
+      }
+      .day-heading small {
+        font-size: 10px;
+        letter-spacing: 0.4px;
+        font-weight: 500;
+        border-radius: 4px;
+        padding: 1px 6px;
+        background: #e9f3ff;
+        color: var(--blue);
+      }
+      .day-heading:after {
+        content: "";
+        height: 1px;
+        background: var(--line);
+        flex: 1;
+      }
+      .entry {
+        display: grid;
+        grid-template-columns: 105px 14px minmax(0, 1fr);
+        gap: 13px;
+        position: relative;
+        padding-bottom: 14px;
+      }
+      .entry:last-child {
+        padding-bottom: 0;
+      }
+      .entry-time {
+        padding-top: 12px;
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        line-height: 1.4;
+        font-weight: 600;
+        color: #435062;
+      }
+      .entry-time small {
+        display: block;
+        color: var(--muted);
+        font-weight: 400;
+        font-size: 10px;
+        margin-top: 4px;
+      }
+      .entry-line {
+        position: relative;
+        display: flex;
+        justify-content: center;
+        padding-top: 17px;
+      }
+      .entry-line:after {
+        content: "";
+        width: 1px;
+        position: absolute;
+        top: 25px;
+        bottom: -17px;
+        background: var(--line);
+      }
+      .entry:last-child .entry-line:after {
+        display: none;
+      }
+      .entry-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--blue);
+        z-index: 1;
+      }
+      .entry.card .entry-dot {
+        background: var(--orange);
+        border-radius: 2px;
+        transform: rotate(45deg);
+      }
+      .entry.renew .entry-dot {
+        background: var(--purple);
+      }
+      .entry.check .entry-dot {
+        background: #93a1b3;
+      }
+      .entry-box {
+        background: var(--soft);
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 11px 14px;
+      }
+      .entry.card .entry-box {
+        background: #fffbf5;
+        border-color: #f4e8d8;
+      }
+      .entry.renew .entry-box {
+        background: #faf8ff;
+        border-color: #ebe5f7;
+      }
+      .entry.past {
+        opacity: 0.55;
+      }
+      .entry-top {
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .entry-title {
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .entry-badges {
+        display: flex;
+        gap: 5px;
+        flex-shrink: 0;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .badge {
+        font-size: 10px;
+        white-space: nowrap;
+        line-height: 1.8;
+        padding: 0 6px;
+        border-radius: 4px;
+        background: #e8edf4;
+        color: #68758a;
+      }
+      .badge.kind-use {
+        background: #e5f0fe;
+        color: #3778b8;
+      }
+      .badge.kind-card {
+        background: #faebd3;
+        color: #b4782d;
+      }
+      .badge.kind-renew {
+        background: #eee6fc;
+        color: #8760ba;
+      }
+      .badge.fast {
+        background: #e7f4ed;
+        color: #398064;
+      }
+      .entry-account {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 3px;
+        word-break: break-word;
+      }
+      .entry-note {
+        font-size: 12px;
+        color: #6f7c8e;
+        margin: 7px 0 0;
+        white-space: pre-wrap;
+      }
+      .card-expiry {
+        font-size: 10px;
+        color: #ad7e40;
+        margin-top: 7px;
+      }
+      .entry-amount {
+        font-variant-numeric: tabular-nums;
+        font-size: 13px;
+        font-weight: 650;
+        color: var(--purple);
+      }
+      .empty {
+        padding: 55px 20px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .empty .empty-icon {
+        font-size: 30px;
+        margin-bottom: 10px;
+      }
+      .empty h3 {
+        color: inherit;
+        margin: 0 0 7px;
+        font-size: 14px;
+      }
+      .empty p {
+        font-size: 12px;
+        margin: 0;
+      }
+      .footnotes {
+        margin-top: 19px;
+        font-size: 11px;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      .notes {
+        margin-top: 17px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 13px 17px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .notes summary {
+        cursor: pointer;
+        font-weight: 550;
+        color: #526176;
+      }
+      .notes ul {
+        margin: 10px 0 2px;
+        padding-left: 19px;
+      }
+      .notes li + li {
+        margin-top: 5px;
+      }
+      .overview-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 15px;
+        margin-top: 25px;
+      }
+      .overview-card {
+        background: var(--card);
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        min-width: 0;
+      }
+      .overview-email {
+        font-size: 13px;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .overview-value {
+        font-size: 31px;
+        font-weight: 650;
+        letter-spacing: -1px;
+        margin: 17px 0 3px;
+      }
+      .overview-small {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 7px;
+      }
+      .overview-card .account-mini-bar {
+        height: 5px;
+      }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 28px;
+        transform: translateX(-50%);
+        background: #283340;
+        color: #fff;
+        padding: 11px 18px;
+        border-radius: 9px;
+        font-size: 12px;
+        box-shadow: 0 8px 30px #17202d22;
+        z-index: 20;
+        max-width: 90vw;
+      }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: #1b263d50;
+        backdrop-filter: blur(5px);
+        z-index: 30;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .modal {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        width: min(900px, 100%);
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 100px #17202d30;
+      }
+      .modal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 17px 20px;
+        border-bottom: 1px solid var(--line);
+        gap: 10px;
+      }
+      .modal-head h2 {
+        font-size: 15px;
+        margin: 0;
+      }
+      .modal-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .json-code {
+        margin: 0;
+        padding: 20px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font:
+          11px/1.7 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #526176;
+      }
+      .hidden {
+        display: none !important;
+      }
+      @media (min-width: 1500px) {
+        .main {
+          padding-left: 60px;
+          padding-right: 60px;
+        }
+      }
+      @media (max-width: 1000px) {
+        .main {
+          padding: 30px 25px;
+        }
+        .app {
+          grid-template-columns: 220px minmax(0, 1fr);
+        }
+        .sidebar {
+          padding-left: 12px;
+          padding-right: 12px;
+        }
+        .titlebar {
+          flex-direction: column;
+        }
+        .stats {
+          gap: 9px;
+        }
+        .stat {
+          padding: 14px;
+        }
+        .entry {
+          grid-template-columns: 85px 12px minmax(0, 1fr);
+          gap: 9px;
+        }
+        .entry-top {
+          flex-wrap: wrap;
+        }
+        .entry-badges {
+          justify-content: flex-start;
+        }
+      }
+      @media (max-width: 680px) {
+        .app {
+          display: block;
+        }
+        .sidebar {
+          position: static;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          padding: 15px 16px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .traffic,
+        .brand,
+        .section-label,
+        .accounts-list,
+        .side-foot,
+        .demo-action {
+          display: none;
+        }
+        .nav {
+          width: auto;
+          margin: 0;
+          padding: 8px 12px;
+          font-size: 12px;
+        }
+        .nav .icon {
+          font-size: 16px;
+          width: 18px;
+        }
+        .main {
+          padding: 24px 16px;
+        }
+        .titlebar h1 {
+          font-size: 26px;
+        }
+        .stats {
+          grid-template-columns: 1fr;
+        }
+        .stat {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 3px 12px;
+        }
+        .stat-value {
+          grid-column: 2;
+          grid-row: 1/3;
+          margin: 0;
+          font-size: 23px;
+        }
+        .budget-track {
+          grid-column: 1/-1;
+          margin-top: 6px;
+        }
+        .toolbar {
+          padding: 12px;
+          gap: 10px;
+        }
+        .tabs {
+          flex-wrap: wrap;
+        }
+        .tab {
+          padding: 4px 7px;
+        }
+        .search-wrap {
+          flex-basis: 100%;
+        }
+        .timeline {
+          padding: 0 12px 14px;
+        }
+        .timeline-top {
+          padding-left: 13px;
+          padding-right: 13px;
+        }
+        .entry {
+          grid-template-columns: 70px 10px minmax(0, 1fr);
+          gap: 7px;
+        }
+        .entry-time {
+          font-size: 11px;
+        }
+        .entry-box {
+          padding: 10px;
+        }
+        .entry-title {
+          font-size: 12px;
+        }
+        .entry-note {
+          font-size: 11px;
+        }
+        .footnotes {
+          display: block;
+        }
+        .footnotes span {
+          display: block;
+          margin-top: 5px;
+        }
+        .overview-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color: #e0e5ed;
+          background: #171b22;
+          --muted: #99a4b4;
+          --line: #353c48;
+          --card: #222832;
+          --soft: #282f3a;
+          --sidebar: #202631;
+        }
+        .brand-mark {
+          background: #303845;
+        }
+        .nav.active {
+          background: #203e60;
+          color: #77baff;
+        }
+        .account-button:hover {
+          background: #ffffff08;
+        }
+        .avatar {
+          background: #343f4d;
+          color: #b2c3d5;
+        }
+        .account-mini-bar {
+          background: #3d4754;
+        }
+        .demo-banner {
+          background: #3c3421;
+          border-color: #655331;
+          color: #ddc486;
+        }
+        .notice {
+          background: #24374a;
+          border-color: #34506d;
+          color: #a6c7e8;
+        }
+        .notice.warning {
+          background: #3a3022;
+          border-color: #625136;
+          color: #d9bb8b;
+        }
+        .tab.active {
+          color: #e1e6ed;
+        }
+        .entry-time {
+          color: #bdc8d6;
+        }
+        .entry.card .entry-box {
+          background: #332e26;
+          border-color: #514638;
+        }
+        .entry.renew .entry-box {
+          background: #2e293b;
+          border-color: #484056;
+        }
+        .entry-note,
+        .notes summary,
+        .json-code {
+          color: #a7b3c4;
+        }
+        .day-heading small {
+          background: #243f5b;
+          color: #85bfff;
+        }
+        .badge {
+          background: #3b4657;
+          color: #bdc8d8;
+        }
+        .badge.kind-use {
+          background: #2c4563;
+          color: #9bc5f4;
+        }
+        .badge.kind-card {
+          background: #54432e;
+          color: #e1bc84;
+        }
+        .badge.kind-renew {
+          background: #47395f;
+          color: #c7afea;
+        }
+        .badge.fast {
+          background: #2d4a3c;
+          color: #9bc8ad;
+        }
+        .card-expiry {
+          color: #d0ac76;
+        }
+        .entry-amount {
+          color: #ba9ce6;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" aria-label="SwitchGPT 导航">
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">⇄</div>
+          SwitchGPT
+        </div>
+        <button class="nav demo-action" id="add-account">
+          <span class="icon" aria-hidden="true">＋</span>添加账号
+        </button>
+        <button class="nav" id="overview-nav">
+          <span class="icon" aria-hidden="true">▥</span>账号总览
+        </button>
+        <button class="nav active" id="plan-nav" aria-current="page">
+          <span class="icon" aria-hidden="true">▤</span>使用计划
+        </button>
+        <div class="section-label">本机账号</div>
+        <div class="accounts-list" id="accounts-list"></div>
+        <div class="side-foot">◉ 本地文件 · 随 skill 更新<br />账号状态与计划分开保存</div>
+      </aside>
+      <main class="main">
+        <div class="titlebar">
+          <div>
+            <p class="eyebrow" id="eyebrow">ACCOUNT USAGE PLANNER</p>
+            <h1 id="page-title">使用计划</h1>
+            <p class="subtitle" id="subtitle">把账号额度、自然重置和续费安排放进同一条时间线。</p>
+          </div>
+          <div class="header-actions">
+            <button class="button" id="snapshot-button">账号快照</button
+            ><button class="button" id="json-button">查看 JSON</button
+            ><button class="button primary" id="export-button">导出计划</button>
+          </div>
+        </div>
+        <div class="demo-banner hidden" id="demo-banner">
+          交互原型 · 以下均为虚构演示数据，操作只影响当前预览。
+        </div>
+        <div class="notice hidden" id="status-notice">
+          <span class="notice-icon" aria-hidden="true">◷</span>
+          <div id="status-message"></div>
+        </div>
+        <section id="plan-view">
+          <div class="stats">
+            <div class="stat">
+              <div class="stat-label">本月计划支出</div>
+              <div class="stat-value" id="budget-value">—</div>
+              <div class="stat-detail" id="budget-detail">以实际扣款和报销规则为准</div>
+              <div class="budget-track"><span id="budget-progress"></span></div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">接下来优先使用</div>
+              <div class="stat-value" id="next-account">—</div>
+              <div class="stat-detail" id="next-detail">等待计划数据</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">下一次时间点操作</div>
+              <div class="stat-value" id="next-action">—</div>
+              <div class="stat-detail" id="next-action-detail">暂无待执行节点</div>
+            </div>
+          </div>
+          <div class="workspace">
+            <div class="toolbar">
+              <div class="tabs" role="group" aria-label="筛选操作类型">
+                <button class="tab active" data-filter="all" aria-pressed="true">全部</button
+                ><button class="tab" data-filter="use" aria-pressed="false">使用时段</button
+                ><button class="tab" data-filter="card" aria-pressed="false">重置卡</button
+                ><button class="tab" data-filter="renew" aria-pressed="false">续费</button
+                ><button class="tab" data-filter="check" aria-pressed="false">检查</button>
+              </div>
+              <label class="search-wrap"
+                ><span aria-hidden="true">⌕</span
+                ><input
+                  class="search"
+                  id="search"
+                  type="search"
+                  placeholder="搜索账号或安排"
+                  aria-label="搜索账号或安排"
+              /></label>
+            </div>
+            <div class="timeline-top">
+              <span id="entry-count">时间线</span
+              ><label class="toggle-label"
+                ><input type="checkbox" id="show-past" checked />显示已过时间</label
+              >
+            </div>
+            <div class="timeline" id="timeline"></div>
+          </div>
+          <details class="notes hidden" id="notes">
+            <summary>计划依据与待确认事项</summary>
+            <ul id="notes-list"></ul>
+          </details>
+          <div class="footnotes">
+            <span id="snapshot-time">账号快照 —</span><span id="plan-time">计划更新 —</span>
+          </div>
+        </section>
+        <section class="hidden" id="overview-view">
+          <div class="overview-grid" id="overview-grid"></div>
+          <div class="footnotes">
+            <span>用量为最近保存的快照，实际状态以重新查询为准。</span
+            ><span id="overview-time"></span>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div class="toast hidden" id="toast" role="status"></div>
+    <div class="modal-backdrop hidden" id="modal-backdrop">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-head">
+          <h2 id="modal-title">计划 JSON</h2>
+          <div class="modal-actions">
+            <button class="button" id="copy-button">复制</button
+            ><button class="button" id="close-modal" aria-label="关闭详情">关闭</button>
+          </div>
+        </div>
+        <pre class="json-code" id="json-code"></pre>
+      </section>
+    </div>
+    <script type="application/json" id="usage-plan-data">
+      __SWITCHGPT_PLAN_JSON__
+    </script>
+    <script>
+      "use strict";
+      const byId = (id) => document.getElementById(id);
+      let bundle;
+      try {
+        bundle = JSON.parse(byId("usage-plan-data").textContent);
+      } catch {
+        bundle = { plan: { entries: [] }, snapshot: { accounts: [] }, parseError: true };
+      }
+      const plan = bundle.plan || {};
+      const snapshot = bundle.snapshot || {};
+      const accounts = Array.isArray(snapshot.accounts) ? snapshot.accounts : [];
+      const entries = Array.isArray(plan.entries)
+        ? plan.entries.slice().sort((a, b) => new Date(a.startAt) - new Date(b.startAt))
+        : [];
+      const zone = plan.timeZone || "Asia/Shanghai";
+      const now = bundle.demo && bundle.previewNow ? new Date(bundle.previewNow) : new Date();
+      const format = (value, options) => {
+        if (!value || !Number.isFinite(new Date(value).getTime())) return "未知";
+        try {
+          return new Intl.DateTimeFormat("zh-CN", { timeZone: zone, ...options }).format(
+            new Date(value),
+          );
+        } catch {
+          return "未知";
+        }
+      };
+      const clock = (value) => format(value, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const stamp = (value) =>
+        format(value, {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
+      const dayKey = (value) =>
+        format(value, { year: "numeric", month: "2-digit", day: "2-digit" });
+      const labelDay = (value) => format(value, { month: "long", day: "numeric", weekday: "long" });
+      const accountLabel = (value) => {
+        if (!value) return "全部账号";
+        const record = accounts.find((a) => a.email === value || a.id === value);
+        return record?.displayName || value || "全部账号";
+      };
+      const shortLabel = (value) => {
+        const label = accountLabel(value);
+        return label.includes("@") ? label.split("@")[0] : label;
+      };
+      const money = (value) =>
+        Number.isFinite(value)
+          ? "$" + value.toLocaleString("en-US", { maximumFractionDigits: 2 })
+          : "待确认";
+      const remaining = (account) =>
+        Number.isFinite(account.quota?.weekly?.remainingPercent)
+          ? account.quota.weekly.remainingPercent
+          : null;
+      const kinds = { use: "使用时段", card: "用卡节点", renew: "续费节点", check: "检查节点" };
+      const speeds = { standard: "标准速度", fast: "Fast 开启", "as-needed": "按任务开启 Fast" };
+      let filter = "all";
+      let modalText = "";
+      let previousFocus = null;
+      function create(tag, className, text) {
+        const el = document.createElement(tag);
+        if (className) el.className = className;
+        if (text !== undefined) el.textContent = text;
+        return el;
+      }
+      function toast(text) {
+        byId("toast").textContent = text;
+        byId("toast").classList.remove("hidden");
+        clearTimeout(toast.timer);
+        toast.timer = setTimeout(() => byId("toast").classList.add("hidden"), 3000);
+      }
+      function isPast(entry) {
+        if (entry.kind === "use" && entry.endWhen) return false;
+        return new Date(entry.endAt || entry.startAt) < now;
+      }
+      function showView(view) {
+        const isPlan = view === "plan";
+        byId("plan-view").classList.toggle("hidden", !isPlan);
+        byId("overview-view").classList.toggle("hidden", isPlan);
+        byId("plan-nav").classList.toggle("active", isPlan);
+        byId("overview-nav").classList.toggle("active", !isPlan);
+        byId("plan-nav").setAttribute("aria-current", isPlan ? "page" : "false");
+        byId("overview-nav").setAttribute("aria-current", !isPlan ? "page" : "false");
+        byId("page-title").textContent = isPlan ? "使用计划" : "账号总览";
+        byId("subtitle").textContent = isPlan
+          ? plan.summary || "使用时段与操作节点按时间排列。"
+          : "最近一次 CLI 查询保存的本机账号状态。";
+      }
+      function renderAccounts() {
+        for (const account of accounts) {
+          const button = create("button", "account-button");
+          const r = remaining(account);
+          button.append(
+            create(
+              "span",
+              "avatar",
+              (account.email || account.displayName || "?").slice(0, 1).toUpperCase(),
+            ),
+          );
+          const copy = create("div", "account-copy");
+          copy.append(
+            create("div", "account-name", account.email || account.displayName || "未知账号"),
+          );
+          copy.append(
+            create(
+              "div",
+              "account-meta",
+              (account.planName || "未知套餐") +
+                " · " +
+                (account.status === "error"
+                  ? "查询失败"
+                  : r === null
+                    ? "额度未知"
+                    : "剩余 " + r + "%"),
+            ),
+          );
+          const track = create("div", "account-mini-bar");
+          const fill = create("span");
+          fill.style.width = (r === null ? 0 : Math.min(100, Math.max(0, r))) + "%";
+          track.append(fill);
+          copy.append(track);
+          button.append(copy);
+          button.addEventListener("click", () => {
+            byId("search").value = account.email || account.displayName || "";
+            showView("plan");
+            renderTimeline();
+          });
+          byId("accounts-list").append(button);
+          const card = create("article", "overview-card");
+          card.append(
+            create("div", "overview-email", account.email || account.displayName || "未知账号"),
+            create("div", "overview-small", account.planName || "未知套餐"),
+            create(
+              "div",
+              "overview-value",
+              account.status === "error" ? "读取失败" : r === null ? "—" : r + "%",
+            ),
+          );
+          card.append(create("div", "overview-small", "周额度剩余"));
+          const t = track.cloneNode(true);
+          card.append(t);
+          card.append(
+            create("div", "overview-small", "自然重置 " + stamp(account.quota?.weekly?.resetAt)),
+            create(
+              "div",
+              "overview-small",
+              account.subscription?.expiresOn
+                ? "套餐到期 " + account.subscription.expiresOn + " · 手动登记"
+                : "套餐到期未登记",
+            ),
+            create(
+              "div",
+              "overview-small",
+              "重置卡 " + (account.quota?.resetCredits?.availableCount ?? "未知") + " 张",
+            ),
+          );
+          if (account.error)
+            card.append(
+              create("div", "overview-small", account.error.message || "账号查询出现错误"),
+            );
+          byId("overview-grid").append(card);
+        }
+      }
+      function renderStats() {
+        const b = plan.budget || {};
+        byId("budget-value").textContent = money(b.plannedTotal);
+        byId("budget-detail").textContent =
+          "每月预算 " + money(b.monthlyLimit) + " · 计划金额，扣款状态另行核实";
+        const limit = Number(b.monthlyLimit);
+        const total = Number(b.plannedTotal);
+        byId("budget-progress").style.width =
+          (limit > 0 && Number.isFinite(total) ? Math.min(100, (total / limit) * 100) : 0) + "%";
+        const nextUse = entries.find((e) => e.kind === "use" && !isPast(e));
+        if (nextUse) {
+          byId("next-account").textContent = shortLabel(nextUse.account);
+          byId("next-account").style.fontSize =
+            shortLabel(nextUse.account).length > 16 ? "17px" : "24px";
+          byId("next-detail").textContent =
+            stamp(nextUse.startAt) +
+            (nextUse.endWhen
+              ? " 起 · " + nextUse.endWhen
+              : nextUse.endAt ? " — " + stamp(nextUse.endAt) : "") +
+            " · " +
+            (speeds[nextUse.speed] || "按计划使用");
+        }
+        const action = entries.find((e) => e.kind !== "use" && !isPast(e));
+        if (action) {
+          byId("next-action").textContent = stamp(action.startAt);
+          byId("next-action").style.fontSize = "20px";
+          byId("next-action-detail").textContent =
+            shortLabel(action.account) + " · " + (kinds[action.kind] || "操作节点");
+        }
+      }
+      function renderTimeline() {
+        const root = byId("timeline");
+        root.replaceChildren();
+        const query = byId("search").value.trim().toLocaleLowerCase();
+        const showPast = byId("show-past").checked;
+        const visible = entries.filter(
+          (e) =>
+            (filter === "all" || e.kind === filter) &&
+            (showPast || !isPast(e)) &&
+            (!query ||
+              [e.title, e.note, e.account, accountLabel(e.account)]
+                .filter(Boolean)
+                .join(" ")
+                .toLocaleLowerCase()
+                .includes(query)),
+        );
+        byId("entry-count").textContent = visible.length + " 项安排 · " + zone;
+        if (!visible.length) {
+          const empty = create("div", "empty");
+          empty.append(
+            create("div", "empty-icon", "◷"),
+            create("h3", "", entries.length ? "没有匹配的安排" : "还没有使用计划"),
+            create(
+              "p",
+              "",
+              entries.length
+                ? "调整筛选、搜索，或显示已过时间。"
+                : "运行更新 skill，保存账号快照与计划后在这里查看。",
+            ),
+          );
+          root.append(empty);
+          return;
+        }
+        let currentDay = null;
+        let group;
+        for (const entry of visible) {
+          const key = dayKey(entry.startAt);
+          if (key !== currentDay) {
+            currentDay = key;
+            group = create("section", "day-group");
+            const heading = create("h2", "day-heading", labelDay(entry.startAt));
+            if (key === dayKey(now)) heading.append(create("small", "", "今天"));
+            group.append(heading);
+            root.append(group);
+          }
+          const row = create(
+            "article",
+            "entry " + (entry.kind || "check") + (isPast(entry) ? " past" : ""),
+          );
+          const time = create("div", "entry-time", clock(entry.startAt));
+          if (entry.endAt)
+            time.append(
+              create(
+                "small",
+                "",
+                dayKey(entry.endAt) === key
+                  ? "至 " + clock(entry.endAt)
+                  : "至 " + stamp(entry.endAt),
+              ),
+            );
+          else time.append(create("small", "", entry.endWhen ? "按条件结束" : "时间点操作"));
+          const line = create("div", "entry-line");
+          line.append(create("span", "entry-dot"));
+          const box = create("div", "entry-box");
+          const top = create("div", "entry-top");
+          top.append(create("div", "entry-title", entry.title || "未命名安排"));
+          const badges = create("div", "entry-badges");
+          badges.append(create("span", "badge kind-" + entry.kind, kinds[entry.kind] || "操作"));
+          if (isPast(entry) && entry.kind !== "use")
+            badges.append(create("span", "badge", "时间已过，执行情况待核对"));
+          if (speeds[entry.speed])
+            badges.append(
+              create(
+                "span",
+                "badge" + (entry.speed === "fast" ? " fast" : ""),
+                speeds[entry.speed],
+              ),
+            );
+          if (Number.isFinite(entry.amountUsd))
+            badges.append(create("span", "entry-amount", money(entry.amountUsd)));
+          top.append(badges);
+          box.append(top, create("div", "entry-account", accountLabel(entry.account)));
+          if (entry.endWhen)
+            box.append(create("p", "entry-note", "结束条件 · " + entry.endWhen));
+          if (entry.note) box.append(create("p", "entry-note", entry.note));
+          if (entry.cardExpiresAt)
+            box.append(
+              create("div", "card-expiry", "指定卡片 · " + stamp(entry.cardExpiresAt) + " 到期"),
+            );
+          row.append(time, line, box);
+          group.append(row);
+        }
+      }
+      function renderNotes() {
+        const context = plan.planningContext || {};
+        const list = [];
+        for (const item of context.uncertainties || [])
+          list.push(typeof item === "string" ? item : JSON.stringify(item));
+        for (const item of plan.notes || [])
+          list.push(typeof item === "string" ? item : JSON.stringify(item));
+        if (list.length) {
+          for (const note of list) byId("notes-list").append(create("li", "", note));
+          byId("notes").classList.remove("hidden");
+        }
+      }
+      function renderStatus() {
+        const messages = [];
+        if (bundle.parseError) messages.push("文件数据无法解析，请重新生成计划。");
+        if ((snapshot.revision || null) !== (plan.snapshotRevision || null))
+          messages.push("账号信息或手动到期时间已更新，使用计划需要重新生成。");
+        if (
+          snapshot.generatedAt &&
+          plan.snapshotGeneratedAt &&
+          new Date(snapshot.generatedAt).getTime() !== new Date(plan.snapshotGeneratedAt).getTime()
+        )
+          messages.push(
+            "账号快照已更新，当前计划仍基于上一份快照。请运行更新 skill 重新生成计划。",
+          );
+        if (snapshot.generatedAt && now - new Date(snapshot.generatedAt) > 24 * 3600000)
+          messages.push("账号快照已超过 24 小时，执行操作前请重新查询。");
+        if ((snapshot.errorCount || 0) > 0)
+          messages.push("本次有 " + snapshot.errorCount + " 个账号查询失败，相关状态需要核实。");
+        if (messages.length) {
+          byId("status-message").textContent = messages.join(" ");
+          byId("status-notice").classList.remove("hidden");
+          byId("status-notice").classList.add("warning");
+        } else {
+          byId("status-message").textContent =
+            "计划由本地 skill 更新。用卡与续费节点请按说明核对后手动执行。";
+          byId("status-notice").classList.remove("hidden");
+        }
+      }
+      function openModal(title, value) {
+        previousFocus = document.activeElement;
+        modalText = JSON.stringify(value, null, 2);
+        byId("modal-title").textContent = title;
+        byId("json-code").textContent = modalText;
+        byId("modal-backdrop").classList.remove("hidden");
+        byId("close-modal").focus();
+      }
+      function closeModal() {
+        byId("modal-backdrop").classList.add("hidden");
+        previousFocus?.focus();
+      }
+      byId("plan-nav").addEventListener("click", () => showView("plan"));
+      byId("overview-nav").addEventListener("click", () => showView("overview"));
+      byId("add-account").addEventListener("click", () =>
+        toast("请在 SwitchGPT 应用中添加账号。此处为只读预览。"),
+      );
+      byId("search").addEventListener("input", () => {
+        renderTimeline();
+      });
+      byId("show-past").addEventListener("change", renderTimeline);
+      for (const tab of document.querySelectorAll("[data-filter]"))
+        tab.addEventListener("click", () => {
+          filter = tab.dataset.filter;
+          for (const other of document.querySelectorAll("[data-filter]")) {
+            other.classList.toggle("active", other === tab);
+            other.setAttribute("aria-pressed", other === tab ? "true" : "false");
+          }
+          renderTimeline();
+        });
+      byId("snapshot-button").addEventListener("click", () => openModal("最近账号快照", snapshot));
+      byId("json-button").addEventListener("click", () => openModal("使用计划 JSON", plan));
+      byId("close-modal").addEventListener("click", closeModal);
+      byId("modal-backdrop").addEventListener("click", (event) => {
+        if (event.target === byId("modal-backdrop")) closeModal();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeModal();
+        if (event.key === "Tab" && !byId("modal-backdrop").classList.contains("hidden")) {
+          const buttons = [byId("copy-button"), byId("close-modal")].filter(
+            (button) => button.getClientRects().length > 0,
+          );
+          const lastButton = buttons[buttons.length - 1];
+          if (event.shiftKey && document.activeElement === buttons[0]) {
+            event.preventDefault();
+            lastButton.focus();
+          } else if (!event.shiftKey && document.activeElement === lastButton) {
+            event.preventDefault();
+            buttons[0].focus();
+          }
+        }
+      });
+      byId("copy-button").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(modalText);
+          toast("JSON 已复制");
+        } catch {
+          toast("当前浏览器不允许复制，请选中 JSON 手动复制。");
+        }
+      });
+      byId("export-button").addEventListener("click", () => {
+        const url = URL.createObjectURL(
+          new Blob([JSON.stringify(plan, null, 2)], { type: "application/json" }),
+        );
+        const link = create("a");
+        link.href = url;
+        link.download = "usage-plan.json";
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast("已导出当前计划 JSON");
+      });
+      byId("demo-banner").classList.toggle("hidden", !bundle.demo);
+      byId("snapshot-time").textContent = "账号快照 " + stamp(snapshot.generatedAt);
+      byId("plan-time").textContent = "计划更新 " + stamp(plan.generatedAt);
+      byId("overview-time").textContent = "账号快照 " + stamp(snapshot.generatedAt);
+      renderAccounts();
+      renderStats();
+      renderNotes();
+      renderStatus();
+      renderTimeline();
+      showView("plan");
+    </script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "SwitchGPT 账号查询"
+  short_description: "查询本机全部 SwitchGPT 账号的套餐、剩余额度、重置卡和 Token 用量"
+  default_prompt: "使用 $switchgpt-accounts 查询所有已添加账号的最新额度，列出套餐、剩余百分比、重置时间、重置卡和失败状态。"
