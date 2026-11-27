@@ -5,6 +5,7 @@ struct DashboardDetailView: View {
   let store: SwitchGPTAppStore
   let account: AccountRecord?
   let showsAccountOverview: Bool
+  let showsOnlyFavorites: Bool
   let isCurrent: Bool
   let allowsCurrentAction: Bool
   let resetTimeFormat: ResetTimeFormat
@@ -48,6 +49,12 @@ struct DashboardDetailView: View {
               ResetCreditsCardView(summary: account.usage.resetCredits)
                 .id(account.id)
             }
+          } else if showsOnlyFavorites {
+            ContentUnavailableView(
+              L10n.string("No favorite accounts"),
+              systemImage: "star",
+              description: Text(L10n.string("Star an account in All to see it here."))
+            )
           } else {
             ContentUnavailableView(
               "No account selected",

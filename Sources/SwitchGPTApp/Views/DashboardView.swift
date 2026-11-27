@@ -19,6 +19,7 @@ struct DashboardView: View {
   @State private var pendingRealSwitch: RealSwitchPlan?
   @State private var pendingRemoval: AccountRecord?
   @State private var selectedAccountID: AccountID?
+  @State private var showsOnlyFavorites = false
   @State private var section: DashboardSection = .account
   @State private var accountSignInTask: Task<Void, Never>?
   @State private var windowTopInset: CGFloat = 0
@@ -28,6 +29,11 @@ struct DashboardView: View {
   @Environment(\.scenePhase) private var scenePhase
 
   private var selectedAccount: AccountRecord? {
+    if section == .account && showsOnlyFavorites {
+      let favorites = listPreferences.sidebarAccounts(store.accounts, favoritesOnly: true)
+      return favorites.first { $0.id == selectedAccountID } ?? favorites.first
+    }
+
     if let selectedAccountID,
       let account = store.accounts.first(where: { $0.id == selectedAccountID })
     {
@@ -68,9 +74,14 @@ struct DashboardView: View {
         updateStore: updateStore,
         listPreferences: listPreferences,
         resetTimePreferences: resetTimePreferences,
-        selection: $selectedAccountID,
+        selection: selectedAccount?.id,
+        showsOnlyFavorites: $showsOnlyFavorites,
         section: $section,
         topInset: windowTopInset,
+        onSelectAccount: { id in
+          selectedAccountID = id
+          section = .account
+        },
         onAddOrCancel: { addOrCancelAccountSignIn() }
       )
       .id(languageRawValue)
@@ -134,7 +145,13 @@ struct DashboardView: View {
       await updateStore.checkIfStale()
     }
     .onChange(of: store.currentAccountID) { _, newValue in
-      if section == .account { selectedAccountID = newValue }
+      guard section == .account,
+        !showsOnlyFavorites || newValue.map(listPreferences.isSidebarFavorite) == true
+      else { return }
+      selectedAccountID = newValue
+    }
+    .onChange(of: selectedAccount?.id) { _, displayedID in
+      if showsOnlyFavorites, section == .account { selectedAccountID = displayedID }
     }
     .onChange(of: scenePhase) { _, phase in
       if phase == .active { store.reloadBackgroundUsage() }
@@ -194,6 +211,7 @@ struct DashboardView: View {
       store: store,
       account: selectedAccount,
       showsAccountOverview: section == .overview,
+      showsOnlyFavorites: showsOnlyFavorites,
       isCurrent: selectedAccountIsCurrent,
       allowsCurrentAction: selectedAccountAllowsCurrentAction,
       resetTimeFormat: resetTimePreferences.format,
@@ -267,6 +285,7 @@ struct DashboardView: View {
     guard accountSignInTask == nil, !store.activity.blocksAccountOnboarding else { return }
     accountSignInTask = Task {
       if let newID = await store.signInAccount(replacing: accountID) {
+        if accountID == nil { showsOnlyFavorites = false }
         selectedAccountID = newID
         section = .account
       }
@@ -307,6 +326,7 @@ struct DashboardView: View {
 
   private func remove(_ account: AccountRecord) {
     store.removeAccount(account.id)
+    guard !store.accounts.contains(where: { $0.id == account.id }) else { return }
     selectedAccountID = store.currentAccountID ?? store.accounts.first?.id
   }
 }

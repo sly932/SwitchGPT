@@ -81,6 +81,7 @@ public struct AccountListSettings: Codable, Equatable, Sendable {
 private struct StoredListPreferences: Codable {
   var menu: AccountListSettings
   var sidebar: AccountListSettings
+  var sidebarFavoriteAccountIDs: [AccountID]?
 }
 
 @MainActor
@@ -88,6 +89,7 @@ private struct StoredListPreferences: Codable {
 public final class AccountListPreferences {
   public private(set) var menu: AccountListSettings
   public private(set) var sidebar: AccountListSettings
+  private var sidebarFavoriteAccountIDs: Set<AccountID>
 
   @ObservationIgnored private let userDefaults: UserDefaults
   @ObservationIgnored private let storageKey: String
@@ -103,14 +105,37 @@ public final class AccountListPreferences {
     {
       menu = saved.menu.normalized()
       sidebar = saved.sidebar.normalized()
+      sidebarFavoriteAccountIDs = Set(saved.sidebarFavoriteAccountIDs ?? [])
     } else {
       menu = .standard
       sidebar = .standard
+      sidebarFavoriteAccountIDs = []
     }
   }
 
   public func settings(for surface: AccountListSurface) -> AccountListSettings {
     surface == .menu ? menu : sidebar
+  }
+
+  public func sidebarAccounts(_ accounts: [AccountRecord], favoritesOnly: Bool) -> [AccountRecord] {
+    let orderedAccounts = sidebar.orderedAccounts(accounts)
+    guard favoritesOnly else { return orderedAccounts }
+    return orderedAccounts.filter { isSidebarFavorite($0.id) }
+  }
+
+  public func isSidebarFavorite(_ id: AccountID) -> Bool {
+    sidebarFavoriteAccountIDs.contains(id)
+  }
+
+  public func toggleSidebarFavorite(_ id: AccountID, accounts: [AccountRecord]) {
+    let availableIDs = Set(accounts.map(\.id))
+    guard availableIDs.contains(id) else { return }
+    var favorites = sidebarFavoriteAccountIDs.intersection(availableIDs)
+    if !favorites.insert(id).inserted {
+      favorites.remove(id)
+    }
+    sidebarFavoriteAccountIDs = favorites
+    persist()
   }
 
   public func setVisible(_ visible: Bool, field: AccountDisplayField, on surface: AccountListSurface) {
@@ -155,7 +180,9 @@ public final class AccountListPreferences {
     guard let sourceIndex = order.firstIndex(of: source) else { return }
     order.remove(at: sourceIndex)
     guard let targetIndex = order.firstIndex(of: target) else { return }
-    order.insert(source, at: targetIndex + (after ? 1 : 0))
+    let insertionIndex = targetIndex + (after ? 1 : 0)
+    guard surface == .menu || insertionIndex != sourceIndex else { return }
+    order.insert(source, at: insertionIndex)
     value.accountOrder = order
     set(value, for: surface)
   }
@@ -166,7 +193,15 @@ public final class AccountListPreferences {
 
   private func set(_ value: AccountListSettings, for surface: AccountListSurface) {
     if surface == .menu { menu = value.normalized() } else { sidebar = value.normalized() }
-    let stored = StoredListPreferences(menu: menu, sidebar: sidebar)
+    persist()
+  }
+
+  private func persist() {
+    let stored = StoredListPreferences(
+      menu: menu,
+      sidebar: sidebar,
+      sidebarFavoriteAccountIDs: sidebarFavoriteAccountIDs.sorted { $0.rawValue < $1.rawValue }
+    )
     if let data = try? JSONEncoder().encode(stored) {
       userDefaults.set(data, forKey: storageKey)
     }

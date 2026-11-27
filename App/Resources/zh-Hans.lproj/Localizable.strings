@@ -264,3 +264,11 @@
 "Unable to display the local plan. Open HTML in your browser." = "无法显示本地计划。请在浏览器中打开 HTML。";
 "Local project synchronization or verification failed. The account switch was blocked." = "本地项目同步或一致性核验失败，已阻止切换账号。";
 "SwitchGPT could not verify the local project layout. The switch was blocked before quitting ChatGPT." = "无法验证 ChatGPT 的本地项目格式，已在退出 ChatGPT 前中止切换。";
+"Account filter" = "账号筛选";
+"All" = "全部";
+"Favorites" = "收藏";
+"Favorite %@" = "收藏 %@";
+"Remove %@ from favorites" = "取消收藏 %@";
+"No favorite accounts" = "暂无收藏账号";
+"Star an account in All to see it here." = "在「全部」里点亮账号旁的星标。";
+"Show all accounts" = "查看全部账号";

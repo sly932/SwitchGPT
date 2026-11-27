@@ -411,6 +411,130 @@ final class AppCoreTests: XCTestCase {
   }
 
   @MainActor
+  func testAccountListPreferencesLoadsExistingSettingsWithoutFavorites() throws {
+    struct LegacyListPreferences: Encodable {
+      let menu: AccountListSettings
+      let sidebar: AccountListSettings
+    }
+
+    let suiteName = "switchgpt-list-settings-" + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let storageKey = "SwitchGPT.accountListPreferences.v1"
+    let accounts = MockAccountCatalog.accounts()
+    var menu = AccountListSettings.standard
+    menu.density = .compact
+    menu.visibleFields = [.plan]
+    var sidebar = AccountListSettings.standard
+    sidebar.accountOrder = accounts.reversed().map(\.id)
+    sidebar.visibleFields = [.weeklyRemaining, .weeklyReset]
+    let oldData = try JSONEncoder().encode(LegacyListPreferences(menu: menu, sidebar: sidebar))
+    defaults.set(oldData, forKey: storageKey)
+
+    let preferences = AccountListPreferences(userDefaults: defaults)
+
+    XCTAssertEqual(preferences.menu, menu)
+    XCTAssertEqual(preferences.sidebar, sidebar)
+    XCTAssertTrue(preferences.sidebarAccounts(accounts, favoritesOnly: true).isEmpty)
+    XCTAssertEqual(defaults.data(forKey: storageKey), oldData)
+  }
+
+  @MainActor
+  func testSidebarFavoritesFollowSharedOrderAndSurviveDisplayReset() throws {
+    let suiteName = "switchgpt-list-settings-" + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let extra = MockAccountCatalog.makeAdditionalAccount(
+      displayName: "Research", detail: "", ordinal: 2
+    )
+    let accounts = MockAccountCatalog.accounts() + [extra]
+    let first = accounts[0].id
+    let second = accounts[1].id
+    let third = extra.id
+    let preferences = AccountListPreferences(userDefaults: defaults)
+    preferences.moveAccount(second, relativeTo: first, after: false, accounts: accounts, on: .menu)
+    preferences.toggleSidebarFavorite(first, accounts: accounts)
+    preferences.toggleSidebarFavorite(third, accounts: accounts)
+    XCTAssertEqual(preferences.sidebarAccounts(accounts, favoritesOnly: false).map(\.id), [first, second, third])
+    XCTAssertEqual(preferences.sidebarAccounts(accounts, favoritesOnly: true).map(\.id), [first, third])
+
+    preferences.moveAccount(third, relativeTo: first, after: false, accounts: accounts, on: .sidebar)
+    let restored = AccountListPreferences(userDefaults: defaults)
+    XCTAssertEqual(restored.sidebarAccounts(accounts, favoritesOnly: false).map(\.id), [third, first, second])
+    XCTAssertEqual(restored.sidebarAccounts(accounts, favoritesOnly: true).map(\.id), [third, first])
+    XCTAssertEqual(restored.menu.orderedAccounts(accounts).map(\.id), [second, first, third])
+    XCTAssertTrue(restored.isSidebarFavorite(third))
+
+    restored.reset(.sidebar)
+    let reset = AccountListPreferences(userDefaults: defaults)
+    XCTAssertEqual(reset.sidebarAccounts(accounts, favoritesOnly: false).map(\.id), [first, second, third])
+    XCTAssertEqual(reset.sidebarAccounts(accounts, favoritesOnly: true).map(\.id), [first, third])
+    XCTAssertEqual(reset.menu.orderedAccounts(accounts).map(\.id), [second, first, third])
+  }
+
+  @MainActor
+  func testSidebarPreferencesIgnoreRemovedAccountsAndAppendNewAccounts() throws {
+    let suiteName = "switchgpt-list-settings-" + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let original = MockAccountCatalog.makeAdditionalAccount(
+      displayName: "Research", detail: "", ordinal: 2
+    )
+    let replacement = MockAccountCatalog.makeAdditionalAccount(
+      displayName: "Research", detail: "", ordinal: 2
+    )
+    let initialAccounts = MockAccountCatalog.accounts() + [original]
+    let first = initialAccounts[0].id
+    let second = initialAccounts[1].id
+    let preferences = AccountListPreferences(userDefaults: defaults)
+    preferences.moveAccount(second, relativeTo: first, after: false, accounts: initialAccounts, on: .sidebar)
+    preferences.toggleSidebarFavorite(original.id, accounts: initialAccounts)
+    preferences.toggleSidebarFavorite(first, accounts: initialAccounts)
+
+    let currentAccounts = MockAccountCatalog.accounts() + [replacement]
+    XCTAssertEqual(
+      preferences.sidebarAccounts(currentAccounts, favoritesOnly: false).map(\.id),
+      [second, first, replacement.id]
+    )
+    XCTAssertEqual(preferences.sidebarAccounts(currentAccounts, favoritesOnly: true).map(\.id), [first])
+    XCTAssertFalse(preferences.isSidebarFavorite(replacement.id))
+
+    preferences.toggleSidebarFavorite(first, accounts: currentAccounts)
+    let restored = AccountListPreferences(userDefaults: defaults)
+    XCTAssertFalse(restored.isSidebarFavorite(original.id))
+    XCTAssertTrue(restored.sidebarAccounts(currentAccounts, favoritesOnly: true).isEmpty)
+  }
+
+  @MainActor
+  func testSidebarPreferencesSaveOnlyValidAndChangedMoves() throws {
+    let suiteName = "switchgpt-list-settings-" + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let storageKey = "SwitchGPT.accountListPreferences.v1"
+    let accounts = MockAccountCatalog.accounts()
+    let first = accounts[0].id
+    let second = accounts[1].id
+    let unknown = AccountID("unknown")
+    let preferences = AccountListPreferences(userDefaults: defaults)
+
+    preferences.moveAccount(first, relativeTo: second, after: false, accounts: accounts, on: .sidebar)
+    preferences.moveAccount(second, relativeTo: first, after: true, accounts: accounts, on: .sidebar)
+    preferences.moveAccount(first, relativeTo: first, after: true, accounts: accounts, on: .sidebar)
+    preferences.moveAccount(unknown, relativeTo: second, after: false, accounts: accounts, on: .sidebar)
+    preferences.moveAccount(first, relativeTo: unknown, after: false, accounts: accounts, on: .sidebar)
+    preferences.toggleSidebarFavorite(unknown, accounts: accounts)
+
+    XCTAssertEqual(preferences.sidebar, .standard)
+    XCTAssertFalse(preferences.isSidebarFavorite(unknown))
+    XCTAssertNil(defaults.data(forKey: storageKey))
+
+    preferences.moveAccount(first, relativeTo: second, after: true, accounts: accounts, on: .sidebar)
+
+    let restored = AccountListPreferences(userDefaults: defaults)
+    XCTAssertEqual(restored.sidebarAccounts(accounts, favoritesOnly: false).map(\.id), [second, first])
+  }
+
+  @MainActor
   func testResetTimeFormatUsesChosenStyleAndLocalTimeZone() throws {
     let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-06T07:00:00Z"))
     let shanghai = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))

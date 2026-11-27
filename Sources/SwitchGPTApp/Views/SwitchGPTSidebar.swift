@@ -1,14 +1,17 @@
 import SwiftUI
 import SwitchGPTAppCore
+import UniformTypeIdentifiers
 
 struct SwitchGPTSidebar: View {
   let store: SwitchGPTAppStore
   let updateStore: AppUpdateStore
   let listPreferences: AccountListPreferences
   let resetTimePreferences: ResetTimePreferences
-  @Binding var selection: AccountID?
+  let selection: AccountID?
+  @Binding var showsOnlyFavorites: Bool
   @Binding var section: DashboardSection
   let topInset: CGFloat
+  let onSelectAccount: (AccountID) -> Void
   let onAddOrCancel: () -> Void
 
   @Environment(\.colorScheme) private var colorScheme
@@ -17,6 +20,10 @@ struct SwitchGPTSidebar: View {
   @State private var subscriptions = SubscriptionDisplayStore.shared
 
   var body: some View {
+    let accounts = listPreferences.sidebarAccounts(store.accounts, favoritesOnly: false)
+    let favorites = accounts.filter { listPreferences.isSidebarFavorite($0.id) }
+    let visibleAccounts = showsOnlyFavorites ? favorites : accounts
+
     VStack(spacing: 0) {
       VStack(spacing: 2) {
         SidebarActionRow(
@@ -69,14 +76,21 @@ struct SwitchGPTSidebar: View {
           isSelected: section == .displaySettings
         )
 
-        HStack {
+        HStack(spacing: 4) {
           Text("Accounts")
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.secondary)
-          Spacer()
-          Text(String(store.accounts.count))
-            .font(.system(size: 12).monospacedDigit())
-            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: true, vertical: false)
+          Spacer(minLength: 0)
+          Picker(L10n.string("Account filter"), selection: $showsOnlyFavorites) {
+            Text("\(L10n.string("All")) \(accounts.count)").tag(false)
+            Text("\(L10n.string("Favorites")) \(favorites.count)").tag(true)
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .controlSize(.small)
+          .frame(maxWidth: 144)
+
           Button {
             section = .displaySettings
           } label: {
@@ -88,7 +102,7 @@ struct SwitchGPTSidebar: View {
           .help("Customize account list")
           .accessibilityLabel("Customize account list")
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 7)
         .padding(.top, 16)
         .padding(.bottom, 5)
       }
@@ -96,22 +110,38 @@ struct SwitchGPTSidebar: View {
 
       ScrollView {
         LazyVStack(spacing: 2) {
-          ForEach(listPreferences.sidebar.orderedAccounts(store.accounts)) { account in
-            Button {
-              selection = account.id
-              section = .account
-            } label: {
-              AccountSidebarRow(
-                account: account,
-                isCurrent: store.currentAccountID.map { $0 == account.id } ?? false,
-                isSelected: section == .account && selection == account.id,
-                refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
-                settings: listPreferences.sidebar,
-                resetTimeFormat: resetTimePreferences.format,
-                subscriptionExpiry: subscriptions.expiry(for: account.email)
-              )
+          if showsOnlyFavorites && favorites.isEmpty {
+            VStack(spacing: 7) {
+              Label(L10n.string("No favorite accounts"), systemImage: "star")
+                .font(.system(size: 12, weight: .medium))
+              Text(L10n.string("Star an account in All to see it here."))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+              Button(L10n.string("Show all accounts")) { showsOnlyFavorites = false }
+                .controlSize(.small)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 22)
+            .padding(.horizontal, 8)
+          }
+
+          ForEach(visibleAccounts) { account in
+            AccountSidebarRow(
+              account: account,
+              isCurrent: store.currentAccountID == account.id,
+              isSelected: section == .account && selection == account.id,
+              isFavorite: listPreferences.isSidebarFavorite(account.id),
+              refreshFailed: store.quotaRefreshFailedAccountIDs.contains(account.id),
+              canReorder: visibleAccounts.count > 1,
+              settings: listPreferences.sidebar,
+              resetTimeFormat: resetTimePreferences.format,
+              subscriptionExpiry: subscriptions.expiry(for: account.email),
+              onSelect: { onSelectAccount(account.id) },
+              onToggleFavorite: { listPreferences.toggleSidebarFavorite(account.id, accounts: store.accounts) },
+              onDropAccount: { source, edge in moveAccount(source, relativeTo: account.id, edge: edge) },
+              onMoveOnePosition: { edge in moveOnePosition(account.id, edge: edge) }
+            )
           }
         }
         .padding(.horizontal, 8)
@@ -155,6 +185,28 @@ struct SwitchGPTSidebar: View {
     }
     .padding(.top, topInset)
     .background(ChatGPTStyle.sidebarBackground(for: colorScheme))
+  }
+
+  private func moveAccount(_ source: AccountID, relativeTo target: AccountID, edge: SidebarAccountDropEdge) {
+    if showsOnlyFavorites {
+      let favorites = listPreferences.sidebarAccounts(store.accounts, favoritesOnly: true)
+      guard let sourceIndex = favorites.firstIndex(where: { $0.id == source }),
+        let targetIndex = favorites.firstIndex(where: { $0.id == target })
+      else { return }
+      let boundary = targetIndex + (edge == .after ? 1 : 0)
+      guard boundary != sourceIndex, boundary != sourceIndex + 1 else { return }
+    }
+    withAnimation(.easeOut(duration: 0.15)) {
+      listPreferences.moveAccount(source, relativeTo: target, after: edge == .after, accounts: store.accounts, on: .sidebar)
+    }
+  }
+
+  private func moveOnePosition(_ id: AccountID, edge: SidebarAccountDropEdge) {
+    let visibleAccounts = listPreferences.sidebarAccounts(store.accounts, favoritesOnly: showsOnlyFavorites)
+    guard let index = visibleAccounts.firstIndex(where: { $0.id == id }) else { return }
+    let neighbor = index + (edge == .before ? -1 : 1)
+    guard visibleAccounts.indices.contains(neighbor) else { return }
+    moveAccount(id, relativeTo: visibleAccounts[neighbor].id, edge: edge)
   }
 }
 
@@ -302,17 +354,129 @@ private struct SidebarActionRow: View {
 }
 
 private struct AccountSidebarRow: View {
+  private enum Action: Hashable {
+    case favorite
+    case reorder
+  }
+
   let account: AccountRecord
   let isCurrent: Bool
   let isSelected: Bool
+  let isFavorite: Bool
   let refreshFailed: Bool
+  let canReorder: Bool
   let settings: AccountListSettings
   let resetTimeFormat: ResetTimeFormat
   let subscriptionExpiry: String?
+  let onSelect: () -> Void
+  let onToggleFavorite: () -> Void
+  let onDropAccount: (AccountID, SidebarAccountDropEdge) -> Void
+  let onMoveOnePosition: (SidebarAccountDropEdge) -> Void
 
   @State private var isHovered = false
+  @State private var rowHeight: CGFloat = 0
+  @State private var dropEdge: SidebarAccountDropEdge?
+  @FocusState private var focusedAction: Action?
 
   var body: some View {
+    let row = ZStack(alignment: .topTrailing) {
+      Button(action: onSelect) {
+        accountLabel.contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+      HStack(spacing: 1) {
+        favoriteControl
+        if canReorder {
+          reorderControl
+            .opacity(showsActions ? 1 : 0)
+            .allowsHitTesting(showsActions)
+        }
+      }
+      .padding(.trailing, 6)
+      .frame(height: headerHeight)
+    }
+    .background(
+      isSelected ? ChatGPTStyle.hoverFill : (isHovered ? ChatGPTStyle.subtleFill : Color.clear),
+      in: RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)
+    )
+    .contentShape(Rectangle())
+    .onHover { isHovered = $0 }
+    .animation(.easeOut(duration: 0.15), value: isHovered)
+
+    if canReorder, let dropType = SidebarAccountDrag.type {
+      row
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { rowHeight = $0 }
+        .onDrop(of: [dropType], delegate: SidebarAccountDrop(
+          type: dropType,
+          target: account.id,
+          height: rowHeight,
+          edge: $dropEdge,
+          move: onDropAccount
+        ))
+        .overlay(alignment: dropEdge == .after ? .bottom : .top) {
+          if dropEdge != nil {
+            Capsule()
+              .fill(ChatGPTStyle.actionBlue)
+              .frame(height: 2)
+              .padding(.horizontal, 3)
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          }
+        }
+    } else {
+      row
+    }
+  }
+
+  private var headerHeight: CGFloat { settings.density == .compact ? 34 : 46 }
+  private var showsActions: Bool { isHovered || focusedAction != nil }
+
+  private var favoriteControl: some View {
+    let actionName = L10n.format(isFavorite ? "Remove %@ from favorites" : "Favorite %@", account.accountLabel)
+    return Button(action: onToggleFavorite) {
+      Image(systemName: isFavorite ? "star.fill" : "star")
+        .font(.system(size: 12))
+        .foregroundStyle(isFavorite ? ChatGPTStyle.warningOrange : Color.secondary)
+        .frame(width: 20, height: 24)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .focusable()
+    .focused($focusedAction, equals: .favorite)
+    .help(actionName)
+    .accessibilityLabel(actionName)
+    .accessibilityAddTraits(isFavorite ? .isSelected : [])
+    .opacity(isFavorite || showsActions ? 1 : 0)
+    .allowsHitTesting(isFavorite || showsActions)
+  }
+
+  private var reorderControl: some View {
+    Image(systemName: "line.3.horizontal")
+      .font(.system(size: 11, weight: .medium))
+      .foregroundStyle(.secondary)
+      .frame(width: 20, height: 24)
+      .contentShape(Rectangle())
+      .focusable()
+      .focused($focusedAction, equals: .reorder)
+      .help(L10n.string("Drag to reorder, or use the up and down arrow keys"))
+      .accessibilityLabel(L10n.format("Reorder %@", account.accountLabel))
+      .accessibilityAdjustableAction { direction in
+        switch direction {
+        case .increment: onMoveOnePosition(.after)
+        case .decrement: onMoveOnePosition(.before)
+        @unknown default: break
+        }
+      }
+      .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+        onMoveOnePosition(press.key == .upArrow ? .before : .after)
+        return .handled
+      }
+      .onDrag { SidebarAccountDrag.provider(for: account.id) }
+  }
+
+  private var accountLabel: some View {
     let otherDetails = settings.summary(
       for: account,
       resetTimeFormat: resetTimeFormat,
@@ -326,7 +490,7 @@ private struct AccountSidebarRow: View {
       for: account, resetTimeFormat: resetTimeFormat, subscriptionExpiry: subscriptionExpiry
     )
 
-    VStack(alignment: .leading, spacing: 0) {
+    return VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 10) {
         Image(systemName: account.symbolName)
           .font(.system(size: 12, weight: .medium))
@@ -373,8 +537,9 @@ private struct AccountSidebarRow: View {
             .accessibilityLabel("Current account")
         }
       }
-      .padding(.horizontal, 10)
-      .frame(height: settings.density == .compact ? 34 : 46)
+      .padding(.leading, 10)
+      .padding(.trailing, canReorder ? 50 : 29)
+      .frame(height: headerHeight)
 
       if let resetText {
         Text(resetText)
@@ -399,12 +564,71 @@ private struct AccountSidebarRow: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
-    .background(
-      isSelected ? ChatGPTStyle.hoverFill : (isHovered ? ChatGPTStyle.subtleFill : Color.clear),
-      in: RoundedRectangle(cornerRadius: ChatGPTStyle.rowRadius, style: .continuous)
-    )
-    .contentShape(Rectangle())
-    .onHover { isHovered = $0 }
-    .animation(.easeOut(duration: 0.15), value: isHovered)
+  }
+}
+
+private enum SidebarAccountDropEdge {
+  case before
+  case after
+}
+
+private enum SidebarAccountDrag {
+  static let type = UTType(mimeType: "application/x-switchgpt-sidebar-account-order", conformingTo: .data)
+  private static let prefix = UUID().uuidString + ":"
+
+  static func provider(for id: AccountID) -> NSItemProvider {
+    let provider = NSItemProvider()
+    guard let type else { return provider }
+    let payload = Data((prefix + id.rawValue).utf8)
+    provider.registerDataRepresentation(forTypeIdentifier: type.identifier, visibility: .ownProcess) { result in
+      result(payload, nil)
+      return nil
+    }
+    return provider
+  }
+
+  static func accountID(from data: Data) -> AccountID? {
+    guard let value = String(data: data, encoding: .utf8), value.hasPrefix(prefix) else { return nil }
+    return AccountID(String(value.dropFirst(prefix.count)))
+  }
+}
+
+private struct SidebarAccountDrop: DropDelegate {
+  let type: UTType
+  let target: AccountID
+  let height: CGFloat
+  @Binding var edge: SidebarAccountDropEdge?
+  let move: (AccountID, SidebarAccountDropEdge) -> Void
+
+  func validateDrop(info: DropInfo) -> Bool {
+    height > 0 && info.hasItemsConforming(to: [type])
+  }
+
+  func dropEntered(info: DropInfo) {
+    edge = insertionEdge(at: info.location)
+  }
+
+  func dropUpdated(info: DropInfo) -> DropProposal? {
+    edge = insertionEdge(at: info.location)
+    return DropProposal(operation: .move)
+  }
+
+  func dropExited(info: DropInfo) {
+    edge = nil
+  }
+
+  func performDrop(info: DropInfo) -> Bool {
+    edge = nil
+    let insertionEdge = insertionEdge(at: info.location)
+    guard let provider = info.itemProviders(for: [type]).first else { return false }
+    provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
+      guard let data, let source = SidebarAccountDrag.accountID(from: data), source != target else { return }
+      Task { @MainActor in move(source, insertionEdge) }
+    }
+    return true
+  }
+
+  private func insertionEdge(at location: CGPoint) -> SidebarAccountDropEdge {
+    location.y < height / 2 ? .before : .after
   }
 }
