@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>Quota Timeline</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --canvas: #f1f3f7;
+    --surface: #fff;
+    --well: #f7f8fb;
+    --ink: #172237;
+    --muted: #536177;
+    --faint: #626f83;
+    --hair: #dce3ed;
+    --grid: #e8edf4;
+    --rail: 26px;
+    --rail-edge: #d9e3f1;
+    --cycle: #e7eef9;
+    --cycle-alt: #edf2fa;
+    --cycle-line: #cfdaea;
+    --blue: #2852bc;
+    --forecast: #486685;
+    --control-fill: #e7ecf4;
+    --accent-bg: #eef3ff;
+    --amber: #8b470e;
+    --amber-bg: #fff7ed;
+    --amber-edge: #e5bf94;
+    --violet: #6038ae;
+    --violet-strong: #563098;
+    --violet-bg: #f0eafa;
+    --violet-edge: #bdace1;
+    --editing: #faf7ff;
+    --sim-cycle: #e8def7;
+    --sim-alt: #f0e9fa;
+    --axis-left: 36px;
+    --axis-right: 37px;
+    --account-col: 222px;
+    --shadow: 0 18px 56px #33446a13, 0 2px 6px #33446a0a;
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--ink);
+  }
+  * { box-sizing: border-box; }
+  body { min-width: 320px; margin: 0; background: var(--canvas); padding: clamp(12px, 4.2vw, 50px) clamp(10px, 3vw, 40px); }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; }
+  [hidden] { display: none !important; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+
+  .window {
+    max-width: 1250px; margin-inline: auto; border: 1px solid var(--hair);
+    border-radius: 22px; background: var(--surface); box-shadow: var(--shadow);
+  }
+  .content { padding: 29px 28px 20px; }
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+  .heading { min-width: 0; }
+  h1 { font-size: clamp(27px, 3.6vw, 35px); font-weight: 740; line-height: 1.16; letter-spacing: -.045em; margin: 3px 0 10px; }
+  .snapshot { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: var(--muted); margin: 0; font-size: 12px; }
+  .snapshot time { font-variant-numeric: tabular-nums; }
+  .sample {
+    display: inline-flex; align-items: center; gap: 5px; border-radius: 5px;
+    padding: 2px 6px; border: 1px solid var(--hair); background: var(--well); color: var(--muted);
+  }
+  .refresh-quota {
+    margin-top: 7px; min-height: 28px; padding: 3px 8px; color: var(--blue); font-weight: 660; font-size: 12px;
+    border: 1px solid var(--hair); border-radius: 6px; background: var(--surface);
+  }
+  .refresh-quota:not(:disabled):hover { background: var(--accent-bg); border-color: var(--blue); }
+  .refresh-quota:disabled { color: var(--faint); }
+  .empty-state {
+    min-height: 170px; display: grid; place-items: center; text-align: center; margin: 0;
+    border: 1px solid var(--hair); border-radius: 13px; padding: 20px; color: var(--muted); background: var(--well);
+  }
+  .sample::before { content: ""; width: 5px; height: 5px; border-radius: 100%; background: var(--forecast); }
+  .range-panel {
+    width: 282px; flex: 0 0 auto; padding: 10px 13px 9px; border: 1px solid var(--hair);
+    border-radius: 12px; background: var(--well);
+  }
+  .range-heading, .range-endpoints { display: flex; align-items: center; justify-content: space-between; }
+  .range-heading label { font-size: 12px; font-weight: 660; }
+  .range-heading output { margin: 0 auto 0 8px; color: var(--blue); font-size: 13px; font-weight: 720; font-variant-numeric: tabular-nums; }
+  .switch { display: flex; padding: 2px; background: var(--control-fill); border-radius: 7px; gap: 2px; }
+  .switch button { border: 0; background: transparent; min-width: 37px; min-height: 27px; border-radius: 5px; font-size: 12px; color: var(--muted); }
+  .switch button[aria-pressed=true] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px #121b3125; font-weight: 690; }
+  #range { appearance: none; -webkit-appearance: none; width: 100%; height: 23px; display: block; margin: 1px 0 0; background: transparent; cursor: ew-resize; }
+  #range::-webkit-slider-runnable-track { height: 5px; border-radius: 6px; background: linear-gradient(to right, var(--blue) var(--slider-fill), var(--control-fill) var(--slider-fill)); }
+  #range::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; margin-top: -5px; width: 15px; height: 15px; border: 2px solid var(--surface); border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+  #range::-moz-range-track { height: 5px; border-radius: 6px; background: var(--control-fill); }
+  #range::-moz-range-progress { height: 5px; background: var(--blue); }
+  #range::-moz-range-thumb { width: 12px; height: 12px; border: 2px solid var(--surface); border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+  .range-endpoints { font-variant-numeric: tabular-nums; color: var(--faint); font-size: 11px; }
+  .legend {
+    min-height: 26px; display: flex; align-items: center; gap: 8px 19px;
+    flex-wrap: wrap; margin: 0 0 5px; color: var(--muted); font-size: 12px;
+  }
+  .legend > span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend b { font-weight: inherit; }
+  .key { width: 8px; height: 8px; display: inline-block; border-radius: 50%; background: var(--blue); }
+  .key.forecast { background: var(--surface); border: 1.5px solid var(--forecast); }
+  .key.expiry { border-radius: 1px; transform: rotate(45deg); background: var(--amber); }
+  .key.use { border-radius: 2px; background: var(--violet); }
+
+  .chart { overflow-x: auto; isolation: isolate; scroll-padding-inline-start: var(--account-col); }
+  .chart:focus-visible { outline-offset: -2px; }
+  .matrix { min-width: max(680px, calc(var(--account-col) + var(--axis-left) + var(--axis-right) + var(--card-space, 0px))); display: grid; gap: 8px; padding-bottom: 2px; }
+  .row { display: grid; grid-template-columns: var(--account-col) minmax(0, 1fr); }
+  .axis {
+    border-inline: 1px solid transparent; height: 34px; color: var(--faint); font-size: 11px;
+  }
+  .axis-account, .account { position: sticky; left: 0; z-index: 5; padding-inline: 17px; }
+  .axis-account { display: flex; align-items: center; background: var(--surface); font-weight: 670; }
+  .axis-plot { position: relative; margin-inline: var(--axis-left) var(--axis-right); }
+  .axis-tick { position: absolute; bottom: 0; left: var(--x); transform: translateX(-50%); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .axis-tick:first-child { color: var(--blue); font-weight: 700; }
+  .axis-tick::after { content: ""; display: block; width: 1px; height: 6px; margin: 3px auto 0; background: var(--hair); }
+  .lane {
+    position: relative; min-height: 151px; border: 1px solid var(--hair); border-radius: 13px; background: var(--surface);
+  }
+  .lane.editing { border-color: var(--violet-edge); }
+  .account {
+    padding-block: 12px 8px; display: flex; flex-direction: column;
+    border-radius: 12px 0 0 12px; background: var(--well); border-right: 1px solid var(--hair);
+  }
+  .lane.editing .account { background: var(--editing); }
+  .account-title {
+    margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 15px; font-weight: 710; letter-spacing: -.018em;
+  }
+  .account-note { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+  .account-note.stale { color: var(--amber); }
+  .unknown-reset { position: absolute; top: calc(var(--y) - 24px); color: var(--muted); font-size: 12px; }
+  .plan { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 7px; margin: 4px 0 5px; color: var(--muted); font-size: 11px; }
+  .plan-tier { border: 1px solid var(--hair); border-radius: 4px; padding: 0 4px; background: var(--surface); color: var(--muted); font-weight: 680; white-space: nowrap; }
+  .plan small { font-size: inherit; }
+  .quota-value { display: flex; align-items: baseline; gap: 8px; }
+  .quota-value strong { font-size: 32px; font-weight: 740; letter-spacing: -.062em; line-height: 1.13; font-variant-numeric: tabular-nums; }
+  .quota-value small { color: var(--muted); font-size: 11px; }
+  .quota-meter { height: 10px; border-radius: 6px; background: var(--control-fill); overflow: hidden; margin-top: 6px; }
+  .quota-meter i { height: 100%; background: var(--blue); border-radius: inherit; display: block; min-width: 3px; }
+  .quota-meter i.low { background: var(--amber); }
+  .row-action {
+    align-self: flex-start; display: inline-flex; align-items: center; min-height: 27px; margin-top: 5px;
+    border: 0; border-radius: 5px; padding: 0 5px; background: transparent; color: var(--violet);
+    font-size: 11px; font-weight: 660;
+  }
+  .row-action:not(:disabled):hover { background: var(--violet-bg); }
+  .row-action:disabled { color: var(--faint); }
+  .lane-plot { position: relative; min-width: 0; }
+  .track { position: relative; height: 100%; min-height: 149px; margin-inline: var(--axis-left) var(--axis-right); --y: 59px; }
+  .event-grid { position: absolute; left: var(--x); width: 1px; inset-block: 9px; background: var(--grid); pointer-events: none; }
+  .base-rail {
+    position: absolute; inset-inline: 0; top: var(--y); height: var(--rail);
+    border: 1px solid var(--rail-edge); border-radius: 999px; background: var(--cycle); overflow: hidden;
+  }
+  .row.editing .base-rail { cursor: crosshair; }
+  .cycle-segment { position: absolute; inset-block: 0; left: var(--x); width: var(--w); border-right: 1px solid var(--cycle-line); background: var(--cycle); pointer-events: none; }
+  .cycle-segment:nth-child(even) { background: var(--cycle-alt); }
+  .cycle-segment.simulated { background: var(--sim-cycle); border-right-color: var(--violet-edge); }
+  .cycle-segment.simulated:nth-child(even) { background: var(--sim-alt); }
+  .reset-node {
+    --mark: var(--blue); position: absolute; z-index: 2; top: calc(var(--y) - 3px); left: var(--x);
+    transform: translateX(-50%); height: 31px; width: 10px; background: transparent; border: 0; padding: 0;
+  }
+  .reset-node.forecast { --mark: var(--forecast); }
+  .reset-node.simulated { --mark: var(--violet); }
+  .reset-node::before { content: ""; position: absolute; inset-block: 4px; left: calc(50% - 1px); width: 2px; border-radius: 2px; background: var(--mark); }
+  .reset-node.forecast::before { width: 1px; }
+  .reset-node::after { content: ""; position: absolute; top: 0; left: 50%; width: 7px; height: 7px; background: var(--mark); border-radius: 50%; transform: translateX(-50%); }
+  .reset-node.forecast::after { background: var(--surface); border: 1.5px solid var(--mark); width: 6px; height: 6px; }
+  .reset-node:is(:hover, :focus-visible)::after { box-shadow: 0 0 0 3px var(--accent-bg); }
+  .reset-label {
+    position: absolute; top: -22px; left: 50%; transform: translateX(-50%); white-space: nowrap; color: var(--mark);
+    font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 650; pointer-events: none; display: var(--label,none);
+  }
+  .expiry-line, .expiry-link { position: absolute; background: var(--amber-edge); left: var(--x); pointer-events: none; }
+  .expiry-line { top: calc(var(--y) + var(--rail)); height: 17px; width: 1px; }
+  .expiry-link { top: calc(var(--y) + var(--rail) + 17px); height: 1px; width: var(--w); }
+  .expiry-anchor {
+    position: absolute; z-index: 3; top: calc(var(--y) + var(--rail) + 7px); left: var(--x);
+    width: 18px; height: 18px; transform: translateX(-50%); display: grid; place-items: center; padding: 0; border: 0; background: transparent;
+  }
+  .expiry-anchor::before { content: ""; width: 7px; height: 7px; background: var(--amber); border-radius: 1px; transform: rotate(45deg); }
+  .expiry-anchor:is(:hover, [aria-expanded=true])::before { box-shadow: 0 0 0 3px var(--amber-edge); }
+  .expiry-node {
+    display: flex; position: absolute; top: calc(var(--y) + var(--rail) + 19px); left: var(--x); transform: translateX(-50%);
+    align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--amber-edge); border-radius: 6px;
+    background: var(--amber-bg); color: var(--amber); font-size: 12px; font-variant-numeric: tabular-nums;
+    font-weight: 670; width: 80px; min-height: 28px; padding: 3px 5px; white-space: nowrap; z-index: 3;
+  }
+  .expiry-node::before { content: ""; width: 6px; height: 6px; flex: 0 0 auto; background: var(--amber); border-radius: 1px; transform: rotate(45deg); }
+  .expiry-node:is(:hover, [aria-expanded=true]) { border-color: var(--amber); }
+  .expiry-node.selected { border-color: var(--violet-edge); background: var(--violet-bg); color: var(--violet); }
+  .expiry-node.selected:is(:hover, [aria-expanded=true]) { border-color: var(--violet); }
+  .use-handle {
+    position: absolute; z-index: 4; left: var(--x); top: calc(var(--y) - 3px); transform: translateX(-50%);
+    width: 29px; height: 32px; display: grid; place-items: center; padding: 0 2px 0 10px;
+    border: 1px solid var(--violet-strong); border-radius: 8px; background: var(--violet-strong); color: #fff;
+    font-size: 11px; font-weight: 740; cursor: grab; touch-action: none; box-shadow: 0 0 0 2px var(--surface);
+  }
+  .use-handle::before { content: ""; position: absolute; left: 6px; top: 11px; width: 4px; height: 9px; border-inline: 1px solid #ffffff94; }
+  .use-handle:active { cursor: grabbing; }
+  .use-handle[aria-pressed=true] { z-index: 5; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--violet-edge); }
+  .use-time {
+    position: absolute; top: calc(var(--y) - 34px); left: clamp(46px, var(--x), calc(100% - 46px)); transform: translateX(-50%);
+    background: var(--violet-bg); color: var(--violet); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1;
+    min-height: 23px; border: 1px solid var(--violet-edge); padding: 5px 7px; border-radius: 6px;
+    white-space: nowrap; z-index: 3; pointer-events: none;
+  }
+
+  .footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+  .foot-scroll { display: none; }
+  .popover {
+    position: fixed; z-index: 20; top: 0; left: 0; width: 263px; max-width: calc(100vw - 16px);
+    padding: 13px; border: 1px solid var(--hair); border-radius: 12px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow);
+  }
+  .p-title { font-size: 14px; font-weight: 720; margin: 0; }
+  .p-date, .p-note { margin: 4px 0 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .p-note { margin-top: 7px; }
+  .p-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+  .p-actions button {
+    border: 1px solid transparent; border-radius: 6px; padding: 7px 8px; min-height: 33px;
+    font-size: 12px; color: #fff; font-weight: 680; background: var(--violet-strong);
+  }
+  .p-actions button:hover { box-shadow: inset 0 0 0 1px #ffffff65; }
+  #card-action.remove { border-color: var(--violet-edge); background: var(--violet-bg); color: var(--violet); }
+  #card-action.remove:hover { border-color: var(--violet); }
+  .live { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
+
+  @media (max-width: 850px) {
+    :root { --account-col: 181px; --axis-left: 29px; --axis-right: 30px; }
+    .content { padding: 22px 17px 16px; }
+    .axis-account, .account { padding-inline: 12px; }
+    .foot-scroll { display: inline; }
+  }
+  @media (max-width: 560px) {
+    :root { --account-col: 133px; }
+    .content { padding: 16px 13px 13px; }
+    .top { flex-direction: column; gap: 13px; margin-bottom: 13px; }
+    .range-panel { width: min(100%, 355px); }
+    .quota-value { display: grid; gap: 2px; }
+    .legend { gap: 7px 12px; }
+    .footer { flex-direction: column; gap: 3px; }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --canvas: #171b24; --surface: #202632; --well: #252d3b; --ink: #f0f3f9; --muted: #c1ccdd; --faint: #aebacf;
+      --hair: #3b485d; --grid: #303b4b; --rail-edge: #455a75; --cycle: #35465e; --cycle-alt: #2f3f54; --cycle-line: #49617e;
+      --blue: #a9c1ff; --forecast: #b5c8e3; --control-fill: #37465c; --accent-bg: #485c83;
+      --amber: #ffcc96; --amber-bg: #392d26; --amber-edge: #9c6e48;
+      --violet: #ddc9ff; --violet-strong: #6943a8; --violet-bg: #3d3154; --violet-edge: #9c81c5;
+      --editing: #302942; --sim-cycle: #4b3a67; --sim-alt: #42335b;
+      --shadow: 0 16px 46px #0d101855, 0 2px 6px #0d10182d;
+    }
+  }
+</style>
+</head>
+<body>
+<main class="window">
+  <div class="content">
+    <header class="top">
+      <div class="heading">
+        <h1 data-copy="heading">Quota Timeline</h1>
+        <p class="snapshot" id="snapshot-meta" hidden>
+          <span class="sample" data-copy="snapshot">Quota snapshot</span>
+          <span><time id="snapshot"></time> · <span data-copy="timezone">Beijing time</span></span>
+        </p>
+        <button class="refresh-quota" type="button" id="refresh-quota" disabled>Refresh Usage</button>
+      </div>
+      <div class="range-panel">
+        <div class="range-heading"><label for="range" data-copy="range">Time range</label><output id="range-value" for="range"></output>
+          <div class="switch" role="group" data-label="unit" aria-label="Time unit">
+            <button type="button" data-unit="day" data-copy="days" aria-pressed="true">Days</button><button type="button" data-unit="month" data-copy="months" aria-pressed="false">Months</button>
+          </div>
+        </div>
+        <input id="range" type="range" min="1" max="90" value="35">
+        <div class="range-endpoints"><span id="range-start"></span><span id="range-end"></span></div>
+      </div>
+    </header>
+    <p class="empty-state" id="empty-state" role="status">Loading usage data…</p>
+    <div class="legend" data-label="legend" aria-label="Timeline legend" hidden>
+      <span><i class="key" aria-hidden="true"></i><b data-copy="knownReset"></b></span>
+      <span><i class="key forecast" aria-hidden="true"></i><b data-copy="forecastReset"></b></span>
+      <span><i class="key expiry" aria-hidden="true"></i><b data-copy="expiry"></b></span>
+      <span><i class="key use" aria-hidden="true"></i><b data-copy="use"></b></span>
+    </div>
+    <div class="chart" role="region" tabindex="0" data-label="chart" aria-label="Account quota timeline, scroll horizontally" hidden><div class="matrix" id="matrix"></div></div>
+    <footer class="footer" hidden><span><span data-copy="usageHint"></span><span class="foot-scroll" data-copy="scrollHint"></span></span><span data-copy="forecastHint"></span></footer>
+  </div>
+</main>
+<div class="popover" id="popover" hidden>
+  <p class="p-title" id="p-title"></p><p class="p-date" id="p-date"></p><p class="p-note" id="p-note"></p>
+  <div class="p-actions"><button type="button" id="card-adjust" data-copy="adjust" hidden></button><button type="button" id="card-action"></button></div>
+</div>
+<div id="status" class="live" role="status"></div>
+<script>
+const day = 86400000;
+const week = 7 * day;
+const minute = 60000;
+let start = NaN;
+let accounts = [];
+let language = 'en';
+let dataKey = null;
+let receivedSnapshot = false;
+let queuedSnapshot = null;
+let layoutPending = false;
+const $=selector=>document.querySelector(selector);
+const matrix=$('#matrix'), chart=$('.chart'), popup=$('#popover'), action=$('#card-action'), slider=$('#range');
+const adjust=$('#card-adjust'), refresh=$('#refresh-quota'), snapshotTime=$('#snapshot');
+const ranges={day:35,month:2};
+let unit='day', end=0, drag=null, hover=null, closeTimer=0, resizeTimer=0;
+const scenarios=new Map();
+const editing=new Map();
+const laneParts=new Map();
+const clock=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+function dateParts(ms){return Object.fromEntries(clock.formatToParts(ms).map(part=>[part.type,part.value]))}
+function short(ms){const p=dateParts(ms);return Number(p.month)+'/'+Number(p.day)}
+function time(ms){const p=dateParts(ms);return short(ms)+' '+p.hour+':'+p.minute}
+function exact(ms){const p=dateParts(ms);return p.year+'/'+p.month+'/'+p.day+' '+p.hour+':'+p.minute+':'+p.second}
+const strings = {
+  heading: ['账号额度图', 'Quota Timeline'],
+  snapshot: ['额度快照', 'Quota snapshot'],
+  timezone: ['北京时间', 'Beijing time'],
+  range: ['时间范围', 'Time range'],
+  unit: ['时间单位', 'Time unit'],
+  days: ['天', 'Days'],
+  months: ['月', 'Months'],
+  legend: ['时间轴图例', 'Timeline legend'],
+  knownReset: ['已知自然重置', 'Known natural reset'],
+  forecastReset: ['预计自然重置', 'Projected natural reset'],
+  simulatedReset: ['模拟后的预计自然重置', 'Projected reset after simulated use'],
+  expiry: ['重置卡到期', 'Reset card expires'],
+  use: ['模拟用卡', 'Simulate card use'],
+  useActive: ['已模拟用卡', 'Simulated card use'],
+  chart: ['账号额度时间轴，可横向滚动', 'Account quota timeline, scroll horizontally'],
+  usageHint: ['悬停卡片进入模拟，再拖动方形标记或点击轨道选择用卡时间。', 'Hover over a card to simulate its use, then drag the square handle or click the track to set a time.'],
+  scrollHint: ['横向滑动查看后续日期。', ' Scroll horizontally to see later dates.'],
+  forecastHint: ['自然重置按 7 天推算。', 'Natural resets are projected every 7 days.'],
+  adjust: ['调整这张卡时间', 'Adjust this card’s time'],
+  undo: ['退出这张卡的模拟', 'Undo this card’s simulation'],
+  restore: ['恢复此账号', 'Restore this account'],
+  accountColumn: ['账号 / 周额度', 'Account / Weekly quota'],
+  remaining: ['剩余周额度', 'Weekly quota left'],
+  countUnknown: ['重置卡数量未知', 'Card count unknown'],
+  resetUnknown: ['自然重置时间未知', 'Natural reset time unavailable'],
+  refresh: ['刷新用量', 'Refresh Usage'],
+  refreshing: ['正在刷新…', 'Refreshing…'],
+  loading: ['正在加载额度…', 'Loading usage data…'],
+  empty: ['没有可显示的 Pro 100 或 Pro 200 账号。', 'There are no Pro 100 or Pro 200 accounts to display.'],
+  stale: ['刷新失败，显示上次数据', 'Refresh failed. Showing previous data'],
+  unavailable: ['额度数据不可用', 'Usage unavailable'],
+};
+function localized(zh,en){return language==='zh-Hans'?zh:en}
+function label(key){return localized(...strings[key])}
+function localizeControls(){
+  document.documentElement.lang=language;
+  document.title=label('heading');
+  document.querySelectorAll('[data-copy]').forEach(node=>{node.textContent=label(node.dataset.copy)});
+  document.querySelectorAll('[data-label]').forEach(node=>{node.setAttribute('aria-label',label(node.dataset.label))});
+}
+function say(message){$('#status').textContent=message}
+function dateValue(value){return typeof value==='string'?Date.parse(value):NaN}
+function normalizedAccount(account){
+  const occurrences=new Map();
+  const cards=(account.cards??[]).map(dateValue).filter(Number.isFinite).sort((a,b)=>a-b);
+  const cardKeys=cards.map(expiry=>{
+    const occurrence=occurrences.get(expiry)??0;
+    occurrences.set(expiry,occurrence+1);
+    return expiry+':'+occurrence;
+  });
+  return {
+    id:account.id,name:account.name,plan:account.plan,
+    remaining:Number.isFinite(account.remaining)?account.remaining:null,
+    reset:dateValue(account.resetAt),cardCount:Number.isInteger(account.cardCount)?account.cardCount:null,
+    cards,cardKeys,failed:account.failed===true,refreshedAt:dateValue(account.refreshedAt),
+  };
+}
+function reconcileScenarios(nextAccounts,nextStart){
+  const oldAccounts=new Map(accounts.map(account=>[account.id,account]));
+  const currentIDs=new Set(nextAccounts.map(account=>account.id));
+  for(const id of scenarios.keys()){
+    if(!currentIDs.has(id)){scenarios.delete(id);editing.delete(id)}
+  }
+  for(const account of nextAccounts){
+    const previous=oldAccounts.get(account.id);
+    const oldSimulations=scenarios.get(account.id)??new Map();
+    const oldEdit=editing.get(account.id);
+    const newIndices=new Map(account.cardKeys.map((key,index)=>[key,index]));
+    const updated=new Map();
+    let editIndex;
+    for(const [index,when] of oldSimulations){
+      const nextIndex=newIndices.get(previous?.cardKeys[index]);
+      if(nextIndex===undefined||when<nextStart||when>=account.cards[nextIndex])continue;
+      updated.set(nextIndex,when);
+      if(index===oldEdit)editIndex=nextIndex;
+    }
+    scenarios.set(account.id,updated);
+    if(editIndex===undefined)editing.delete(account.id);else editing.set(account.id,editIndex);
+  }
+}
+function element(type,css,text){const node=document.createElement(type);if(css)node.className=css;if(text!==undefined)node.textContent=text;return node}
+function at(node,p){node.style.setProperty('--x',p*100+'%');return node}
+function width(node,p){node.style.setProperty('--w',Math.max(0,p)*100+'%');return node}
+function percent(ms){return Math.min(1,Math.max(0,(ms-start)/(end-start)))}
+function clamp(ms,a,b){return Math.min(b,Math.max(a,ms))}
+function rowFor(id){return accounts.find(account=>account.id===id)}
+function getEnd(){
+  if(unit==='day')return start+ranges.day*day;
+  const local=new Date(start+8*3600000);
+  const date=local.getUTCDate();
+  local.setUTCDate(1);local.setUTCMonth(local.getUTCMonth()+ranges.month);
+  const last=new Date(Date.UTC(local.getUTCFullYear(),local.getUTCMonth()+1,0)).getUTCDate();
+  local.setUTCDate(Math.min(date,last));
+  return +local-8*3600000;
+}
+function scaleTicks(){
+  const days=(end-start)/day;
+  const step=[1,2,5,7,10,14,21,30,45,60,90].find(v=>days/v<=6);
+  const ticks=[start];
+  for(let i=step;i<days;i+=step){if(days-i>=step*.65)ticks.push(start+i*day)}
+  return [...ticks,end];
+}
+function replay(account,until){
+  const events=[];
+  let next=Number.isFinite(account.reset)?account.reset:Infinity;
+  let projected=false, first=next>=start;
+  if(next<start)next+=Math.ceil((start-next)/week)*week;
+  const uses=[...scenarios.get(account.id)].sort((a,b)=>a[1]-b[1]||a[0]-b[0]);
+  function addResets(before,inclusive){
+    while(next<before || (inclusive&&next===before)){
+      if(next>=start)events.push({kind:'reset',time:next,known:first&&!projected,projected});
+      first=false;next+=week;
+    }
+  }
+  for(const [card,when] of uses){
+    if(when>until)break;
+    addResets(when,false);
+    events.push({kind:'use',time:when,card});
+    projected=true;
+    next=when+week;
+  }
+  addResets(until,true);
+  return events;
+}
+function build(){
+  const axis=element('div','row axis');
+  const axisPlot=element('div','axis-plot');
+  axis.append(element('div','axis-account',label('accountColumn')),axisPlot);
+  matrix.append(axis);
+  for(const account of accounts){
+    const row=element('section','row lane');
+    row.dataset.account=account.id;row.setAttribute('aria-label',account.name);
+    const info=element('div','account');
+    const plan=element('div','plan');
+    const cardCount=account.cardCount===null?label('countUnknown'):
+      localized(account.cardCount+' 张重置卡',account.cardCount+(account.cardCount===1?' reset card':' reset cards'));
+    plan.append(element('span','plan-tier',account.plan),element('small','',cardCount));
+    const name=element('h2','account-title',account.name);name.title=account.name;
+    info.append(name,plan);
+    const quota=element('div','quota-value');
+    quota.append(element('strong','',account.remaining===null?'—':account.remaining+'%'),element('small','',label('remaining')));
+    const meter=element('div','quota-meter');meter.setAttribute('aria-hidden','true');
+    if(account.remaining!==null){
+      const fill=element('i',account.remaining<25?'low':'');fill.style.width=account.remaining+'%';meter.append(fill);
+    }
+    const reset=element('button','row-action','↶  '+label('restore'));reset.type='button';reset.dataset.restore=account.id;
+    info.append(quota,meter,reset);
+    if(account.failed||account.remaining===null){
+      const text=account.remaining===null?label('unavailable'):label('stale');
+      const note=element('p','account-note stale',text);
+      if(Number.isFinite(account.refreshedAt))note.title=exact(account.refreshedAt);
+      info.append(note);
+    }
+    if(account.cardCount>account.cards.length){
+      const missing=account.cardCount-account.cards.length;
+      info.append(element('p','account-note',localized(missing+' 张卡到期未知',missing+' without an expiration date')));
+    }
+    const plot=element('div','lane-plot');
+    const track=element('div','track');track.dataset.track=account.id;
+    const grid=element('div');const rail=element('div','base-rail');rail.dataset.rail=account.id;
+    const resets=element('div');const cards=element('div');const uses=element('div');
+    track.append(grid,rail,resets,cards,uses);
+    plot.append(track);row.append(info,plot);matrix.append(row);
+    laneParts.set(account.id,{row,reset,track,grid,rail,resets,cards,uses});
+  }
+}
+function displayAxis(ticks){
+  const axis=$('.axis-plot');
+  axis.replaceChildren();
+  for(const tick of ticks)axis.append(at(element('span','axis-tick',short(tick)),percent(tick)));
+}
+function renderRange(){
+  if(!Number.isFinite(start)||accounts.length===0)return;
+  end=getEnd();
+  const amount=ranges[unit];
+  const value=unit==='day'?localized(amount+' 天',amount+(amount===1?' day':' days')):
+    localized(amount+' 个月',amount+(amount===1?' month':' months'));
+  const visibleCounts=accounts.map(account=>account.cards.filter(expiry=>expiry>start&&expiry<=end).length);
+  matrix.style.setProperty('--card-space',Math.max(0,(Math.max(...visibleCounts)-1)*86+37)+'px');
+  const progress=(Number(slider.value)-Number(slider.min))/(Number(slider.max)-Number(slider.min));
+  slider.style.setProperty('--slider-fill',(progress*100)+'%');
+  $('#range-value').value=value;slider.setAttribute('aria-valuetext',value);
+  const sameYear=dateParts(start).year===dateParts(end).year;
+  $('#range-start').textContent=sameYear?short(start):dateParts(start).year+'/'+short(start);
+  $('#range-end').textContent=sameYear?short(end):dateParts(end).year+'/'+short(end);
+  const ticks=scaleTicks();
+  displayAxis(ticks);
+  for(const account of accounts){
+    const part=laneParts.get(account.id);
+    part.grid.replaceChildren(...ticks.map(t=>at(element('i','event-grid'),percent(t))));
+    renderCards(account);
+    renderCycle(account);
+  }
+}
+function labeled(card,account,index){
+  return localized('重置卡 '+(index+1)+' · 到期 '+exact(card), 'Reset card '+(index+1)+' · Expires '+exact(card))+' · '+account.name;
+}
+function renderCards(account){
+  const part=laneParts.get(account.id);
+  const layer=part.cards;
+  const w=part.track.clientWidth;
+  const placed=account.cards.map((expiry,index)=>({expiry,index,px:percent(expiry)*w}))
+    .filter(item=>item.expiry>start&&item.expiry<=end);
+  let min=17;
+  for(const item of placed){item.center=Math.max(item.px,min);min=item.center+86}
+  let max=w-16;
+  for(const item of [...placed].reverse()){item.center=Math.min(item.center,max);max=item.center-86}
+  layer.replaceChildren();
+  for(const {expiry,index,px,center} of placed){
+    const x=percent(expiry);
+    const selected=scenarios.get(account.id).has(index);
+    const btn=element('button','expiry-node'+(selected?' selected':''),short(expiry));
+    btn.type='button';btn.dataset.card=index;btn.dataset.account=account.id;btn.dataset.expiry=expiry;
+    btn.setAttribute('aria-label',labeled(expiry,account,index));
+    btn.setAttribute('aria-expanded','false');btn.setAttribute('aria-controls','popover');
+    const pin=element('button','expiry-anchor');
+    pin.type='button';pin.tabIndex=-1;pin.dataset.expiryPin=index;pin.dataset.account=account.id;
+    pin.setAttribute('aria-label',labeled(expiry,account,index));
+    pin.setAttribute('aria-expanded','false');pin.setAttribute('aria-controls','popover');
+    layer.append(at(element('i','expiry-line'),x),
+      width(at(element('i','expiry-link'),Math.min(px,center)/w),Math.abs(center-px)/w),
+      at(pin,x),at(btn,center/w));
+  }
+}
+function renderCycle(account,{newHandles=true}={}){
+  const {row,reset,track,rail,resets,uses}=laneParts.get(account.id);
+  const current=editing.get(account.id), simulations=scenarios.get(account.id);
+  row.classList.toggle('editing',current!==undefined);
+  reset.disabled=simulations.size===0;
+  reset.textContent='↶  '+label('restore')+(simulations.size?' · '+simulations.size:'');
+  const events=replay(account,end);
+  const fragments=document.createDocumentFragment();
+  let prior=start, inSimulation=false;
+  for(const event of [...events,{kind:'end',time:end}]){
+    fragments.append(width(at(element('i','cycle-segment'+(inSimulation?' simulated':'')),percent(prior)),percent(event.time)-percent(prior)));
+    if(event.kind==='use')inSimulation=true;
+    prior=event.time;
+  }
+  rail.replaceChildren(fragments);
+  resets.replaceChildren();
+  if(!Number.isFinite(account.reset)&&simulations.size===0)resets.append(element('span','unknown-reset',label('resetUnknown')));
+  let last=-Infinity;
+  const w=track.clientWidth;
+  const activeTime=simulations.get(current);
+  for(const event of events){
+    if(event.kind!=='reset')continue;
+    const x=percent(event.time)*w;
+    const cls=event.known?' known':' forecast'+(event.projected?' simulated':'');
+    const style=label(event.known?'knownReset':event.projected?'simulatedReset':'forecastReset');
+    const node=element('button','reset-node'+cls);
+    node.type='button';node.tabIndex=-1;
+    node.dataset.reset=event.time;node.setAttribute('aria-label',style+' '+exact(event.time));node.title=style+' '+exact(event.time);
+    const farFromHandle=activeTime===undefined||Math.abs(x-percent(activeTime)*w)>58;
+    if(x-last>58&&farFromHandle){node.style.setProperty('--label','inline');last=x}
+    node.append(element('span','reset-label',short(event.time)));
+    resets.append(at(node,percent(event.time)));
+  }
+  if(newHandles)uses.replaceChildren();
+  const shown=new Set();
+  for(const [index,ms] of simulations){
+    if(ms>end)continue;
+    shown.add(index);
+    let handle=uses.querySelector('[data-handle="'+index+'"]');
+    if(!handle){
+      handle=element('button','use-handle',String(index+1));
+      handle.type='button';handle.dataset.handle=index;handle.dataset.account=account.id;
+      uses.append(handle);
+    }
+    handle.value=String(ms);
+    handle.setAttribute('aria-pressed',String(index===current));
+    const description=label('useActive')+' '+(index+1)+' · '+exact(ms);
+    handle.setAttribute('aria-label',description+localized(' · 左右键调整时间',' · Use arrow keys to adjust the time'));
+    handle.title=description+localized(' · 此时周额度重置为 100%',' · Weekly quota resets to 100%');
+    at(handle,percent(ms));
+  }
+  for(const handle of [...uses.querySelectorAll('.use-handle')]){
+    if(!shown.has(Number(handle.dataset.handle)))handle.remove();
+  }
+  uses.querySelector('.use-time')?.remove();
+  if(activeTime!==undefined&&activeTime<=end)uses.append(at(element('div','use-time',localized('用卡 ','Use ')+time(activeTime)),percent(activeTime)));
+}
+function closePopup(){
+  clearTimeout(closeTimer);
+  if(hover)hover.anchor.setAttribute('aria-expanded','false');
+  popup.hidden=true;hover=null;
+}
+function deferClose(fallback=false){
+  clearTimeout(closeTimer);
+  closeTimer=setTimeout(()=>{
+    const active=document.activeElement;
+    if(!fallback&&(popup.contains(active)||active===hover?.anchor))return;
+    closePopup();
+  },130);
+}
+function openPopup(anchor){
+  clearTimeout(closeTimer);
+  if(hover?.anchor!==anchor){
+    closePopup();
+    hover={anchor,account:rowFor(anchor.dataset.account),index:Number(anchor.dataset.card??anchor.dataset.expiryPin)};
+  }
+  const {account,index}=hover;
+  const sim=scenarios.get(account.id).get(index);
+  $('#p-title').textContent=account.name+localized(' · 重置卡 ',' · Reset card ')+(index+1);
+  $('#p-date').textContent=localized('到期 ','Expires ')+exact(account.cards[index]);
+  $('#p-note').textContent=sim===undefined?
+    localized('选择使用时间后，后续周额度重置随新周期更新。','Choose a time to start a new weekly reset cycle.'):
+    localized('模拟使用 '+exact(sim)+' · 此时周额度回到 100%', 'Simulated use '+exact(sim)+' · Weekly quota resets to 100%');
+  action.textContent=label(sim===undefined?'use':'undo');
+  action.classList.toggle('remove',sim!==undefined);
+  adjust.hidden=sim===undefined;
+  anchor.setAttribute('aria-expanded','true');
+  popup.hidden=false;
+  const rect=anchor.getBoundingClientRect();
+  const x=clamp(rect.left+rect.width/2-popup.offsetWidth/2,8,window.innerWidth-popup.offsetWidth-8);
+  const y=rect.bottom+popup.offsetHeight+7<window.innerHeight?rect.bottom+5:Math.max(8,rect.top-popup.offsetHeight-5);
+  popup.style.left=x+'px';popup.style.top=y+'px';
+}
+function focusCard(account,index){
+  laneParts.get(account.id).cards.querySelector('[data-card="'+index+'"]')?.focus({preventScroll:true});
+}
+function setUse(account,index,ms,{announce=false}={}){
+  const latest=Math.min(end,Math.max(start,account.cards[index]-minute));
+  const rounded=Math.round(ms/(15*minute))*15*minute;
+  const selected=clamp(rounded,start,latest);
+  scenarios.get(account.id).set(index,selected);
+  editing.set(account.id,index);
+  renderCycle(account,{newHandles:false});
+  if(announce)say(account.name+localized(' · 第 '+(index+1)+' 张卡模拟在 '+exact(selected)+' 使用',' · Card '+(index+1)+' simulated at '+exact(selected)));
+}
+function toggleCard(account,index){
+  const simulations=scenarios.get(account.id);
+  const wasActive=simulations.has(index);
+  closePopup();
+  if(wasActive){
+    simulations.delete(index);
+    if(editing.get(account.id)===index){
+      const replacement=[...simulations.keys()].findLast(card=>simulations.get(card)<=end);
+      if(replacement===undefined)editing.delete(account.id);else editing.set(account.id,replacement);
+    }
+    say(account.name+localized(' · 已退出第 '+(index+1)+' 张卡的模拟',' · Card '+(index+1)+' simulation undone'));
+  }else{
+    setUse(account,index,Math.min(end,account.cards[index]-day/2),{announce:true});
+  }
+  renderCards(account);
+  renderCycle(account,{newHandles:false});
+  if(wasActive){focusCard(account,index);closePopup()}
+  else laneParts.get(account.id).uses.querySelector('[data-handle="'+index+'"]')?.focus({preventScroll:true});
+}
+function useAtPointer(event,account,index){
+  const rect=laneParts.get(account.id).rail.getBoundingClientRect();
+  const ms=start+clamp((event.clientX-rect.left)/rect.width,0,1)*(end-start);
+  setUse(account,index,ms);
+}
+function renderRefresh(snapshot){
+  const busy=snapshot.refreshing===true;
+  const isChinese=snapshot.language==='zh-Hans';
+  refresh.disabled=busy||snapshot.canRefresh!==true;
+  refresh.setAttribute('aria-busy',String(busy));
+  refresh.textContent=strings[busy?'refreshing':'refresh'][isChinese?0:1];
+}
+function applySnapshot(snapshot){
+  const nextStart=dateValue(snapshot.asOf);
+  const nextAccounts=Number.isFinite(nextStart)?(snapshot.accounts??[]).map(normalizedAccount):[];
+  const nextLanguage=snapshot.language==='zh-Hans'?'zh-Hans':'en';
+  const key=JSON.stringify([nextStart,nextLanguage,nextAccounts]);
+  if(key===dataKey)return;
+  dataKey=key;
+  receivedSnapshot=true;
+  const scrollLeft=chart.scrollLeft;
+  closePopup();
+  reconcileScenarios(nextAccounts,nextStart);
+  start=nextStart;
+  accounts=nextAccounts;
+  language=nextLanguage;
+  localizeControls();
+  matrix.replaceChildren();
+  laneParts.clear();
+  renderContent();
+  if(accounts.length>0){
+    build();
+    renderRange();
+    chart.scrollLeft=scrollLeft;
+  }
+}
+function renderContent(){
+  const hasData=accounts.length>0;
+  const showDate=Number.isFinite(start);
+  $('#empty-state').hidden=hasData;
+  $('#empty-state').textContent=label(receivedSnapshot?'empty':'loading');
+  $('#snapshot-meta').hidden=!showDate;
+  chart.hidden=!hasData;
+  $('.legend').hidden=!hasData;
+  $('.footer').hidden=!hasData;
+  slider.disabled=!hasData;
+  document.querySelectorAll('[data-unit]').forEach(button=>{button.disabled=!hasData});
+  if(showDate){
+    snapshotTime.dateTime=new Date(start).toISOString();
+    snapshotTime.textContent=exact(start);
+  }
+}
+window.updateQuotaTimeline=snapshot=>{
+  renderRefresh(snapshot);
+  if(drag){queuedSnapshot=snapshot;return}
+  applySnapshot(snapshot);
+};
+refresh.addEventListener('click',()=>{
+  if(!refresh.disabled)window.webkit?.messageHandlers?.refreshQuota?.postMessage('refresh');
+});
+localizeControls();
+renderContent();
+slider.addEventListener('input',()=>{ranges[unit]=Number(slider.value);closePopup();renderRange()});
+document.addEventListener('click',event=>{
+  const mode=event.target.closest('[data-unit]');
+  const card=event.target.closest('.expiry-node,.expiry-anchor');
+  const handle=event.target.closest('.use-handle');
+  const restore=event.target.closest('[data-restore]');
+  const rail=event.target.closest('[data-rail]');
+  if(mode){
+    unit=mode.dataset.unit;slider.max=unit==='day'?90:12;slider.value=ranges[unit];
+    document.querySelectorAll('[data-unit]').forEach(button=>button.setAttribute('aria-pressed',String(button===mode)));
+    closePopup();renderRange();return;
+  }
+  if(card){openPopup(card);return}
+  if(restore){
+    const account=rowFor(restore.dataset.restore);
+    scenarios.get(account.id).clear();editing.delete(account.id);closePopup();
+    renderCards(account);renderCycle(account);say(account.name+localized(' · 已恢复原始重置时间轴',' · Original reset schedule restored'));return;
+  }
+  if(event.target===action&&hover){const {account,index}=hover;toggleCard(account,index);return}
+  if(event.target===adjust&&hover){
+    const {account,index}=hover;
+    if(scenarios.get(account.id).get(index)>end){
+      say(localized('请扩大时间范围以调整这张卡的模拟时间。','Extend the time range to adjust this card.'));return;
+    }
+    closePopup();editing.set(account.id,index);
+    renderCycle(account,{newHandles:false});
+    laneParts.get(account.id).uses.querySelector('[data-handle="'+index+'"]')?.focus({preventScroll:true});
+    return;
+  }
+  if(handle){
+    const account=rowFor(handle.dataset.account);editing.set(account.id,Number(handle.dataset.handle));
+    renderCycle(account,{newHandles:false});return;
+  }
+  if(rail){
+    const account=rowFor(rail.dataset.rail),index=editing.get(account.id);
+    if(index!==undefined){useAtPointer(event,account,index);say(account.name+localized(' · 模拟使用 ',' · Simulated use ')+exact(scenarios.get(account.id).get(index)))}
+  }
+  if(!popup.contains(event.target))closePopup();
+});
+matrix.addEventListener('pointerover',event=>{
+  const button=event.target.closest('.expiry-node,.expiry-anchor');
+  if(button&&button!==event.relatedTarget?.closest?.('.expiry-node,.expiry-anchor'))openPopup(button);
+});
+matrix.addEventListener('pointerout',event=>{
+  const button=event.target.closest('.expiry-node,.expiry-anchor');
+  if(button&&button===hover?.anchor&&!button.contains(event.relatedTarget)&&!popup.contains(event.relatedTarget))deferClose();
+});
+popup.addEventListener('pointerenter',()=>clearTimeout(closeTimer));
+popup.addEventListener('pointerleave',event=>{if(!hover?.anchor.contains(event.relatedTarget))deferClose()});
+matrix.addEventListener('focusin',event=>{if(event.target.matches('.expiry-node,.expiry-anchor'))openPopup(event.target)});
+document.addEventListener('focusout',event=>{
+  if(hover&&(event.target===hover.anchor||popup.contains(event.target)))deferClose();
+});
+matrix.addEventListener('pointerdown',event=>{
+  const handle=event.target.closest('.use-handle');
+  if(!handle||event.button!==0)return;
+  const account=rowFor(handle.dataset.account),index=Number(handle.dataset.handle);
+  closePopup();handle.focus({preventScroll:true});
+  editing.set(account.id,index);
+  drag={account,index,id:event.pointerId};
+  handle.setPointerCapture(event.pointerId);
+  renderCycle(account,{newHandles:false});
+});
+matrix.addEventListener('pointermove',event=>{
+  if(drag?.id===event.pointerId)useAtPointer(event,drag.account,drag.index);
+});
+function stopDrag(event){
+  if(drag?.id!==event.pointerId)return;
+  const {account,index}=drag;
+  say(account.name+localized(' · 模拟使用 ',' · Simulated use ')+exact(scenarios.get(account.id).get(index)));
+  drag=null;
+  if(queuedSnapshot){
+    const snapshot=queuedSnapshot;
+    queuedSnapshot=null;
+    applySnapshot(snapshot);
+  }
+  if(layoutPending){layoutPending=false;renderRange()}
+}
+matrix.addEventListener('pointerup',stopDrag);
+matrix.addEventListener('pointercancel',stopDrag);
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&hover){const anchor=hover.anchor;anchor.focus({preventScroll:true});closePopup();return}
+  if(event.key==='Tab'&&hover&&event.target===hover.anchor&&!event.shiftKey){
+    event.preventDefault();(adjust.hidden?action:adjust).focus();return;
+  }
+  if(event.key==='Tab'&&hover&&event.target===(adjust.hidden?action:adjust)&&event.shiftKey){
+    event.preventDefault();hover.anchor.focus();return;
+  }
+  if(event.key==='Tab'&&hover&&event.target===action&&!event.shiftKey){
+    const controls=[...matrix.querySelectorAll('button:not(:disabled):not([tabindex="-1"])')];
+    const card=hover.anchor.matches('.expiry-node')?hover.anchor:
+      laneParts.get(hover.account.id).cards.querySelector('[data-card="'+hover.index+'"]');
+    const next=controls[controls.indexOf(card)+1];
+    if(next){event.preventDefault();closePopup();next.focus()}
+    return;
+  }
+  const handle=event.target.closest('.use-handle');
+  if(!handle||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  event.preventDefault();
+  const account=rowFor(handle.dataset.account),index=Number(handle.dataset.handle),now=scenarios.get(account.id).get(index);
+  const stride=event.shiftKey?day:60*minute;
+  const ms=event.key==='Home'?start:event.key==='End'?Math.min(end,Math.max(start,account.cards[index]-minute)):now+(event.key==='ArrowLeft'?-stride:stride);
+  setUse(account,index,ms,{announce:true});
+});
+window.addEventListener('resize',()=>{
+  clearTimeout(resizeTimer);
+  resizeTimer=setTimeout(()=>{
+    if(drag){layoutPending=true;return}
+    closePopup();
+    renderRange();
+  },70);
+});
+window.addEventListener('scroll',closePopup,{passive:true});
+chart.addEventListener('scroll',closePopup,{passive:true});
+</script>
+</body>
+</html>

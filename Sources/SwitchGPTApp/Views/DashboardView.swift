@@ -4,6 +4,7 @@ import SwitchGPTAppCore
 enum DashboardSection {
   case account
   case overview
+  case quotaTimeline
   case usagePlan
   case displaySettings
 }
@@ -81,6 +82,12 @@ struct DashboardView: View {
         switch section {
         case .account, .overview:
           dashboardDetail
+        case .quotaTimeline:
+          QuotaTimelineView(
+            store: store,
+            language: (AppLanguage(rawValue: languageRawValue) ?? .system).resourceCode
+          )
+          .padding(.top, windowTopInset)
         case .usagePlan:
           UsagePlanView()
             .padding(.top, windowTopInset)
