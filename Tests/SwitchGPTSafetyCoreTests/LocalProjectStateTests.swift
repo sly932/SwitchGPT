@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SQLite3
 import XCTest
 
 @testable import SwitchGPTDesktopIntegration
@@ -810,6 +811,232 @@ final class LocalProjectStateTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), edited)
   }
 
+  func testSQLiteUsesCurrentOwnerWithStaleJSONAndPreservesBothStoresThroughRecovery() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    let target = fixture.account(.b)
+    try fixture.writeState(["electron-renderer-content-owner": target.owner, "project-order": ["stale"]])
+    let originalJSON = try Data(contentsOf: fixture.globalStateURL)
+    let database = try fixture.makeGlobalStateDatabase()
+    try database.setSettings([
+      "electron-renderer-content-owner": source.owner,
+      "local-projects": ["shared": project("shared")],
+      "project-order": ["shared"],
+      "unrelated-global": ["sequence": 1],
+    ])
+    try database.setSettings(["project-order": ["account-only"]], scope: "account:fixture")
+    try service.captureActive(authenticationURL: source.authenticationURL)
+    try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+
+    try database.setSettings(["unrelated-global": ["sequence": 2]])
+    try database.setSettings([
+      "electron-renderer-content-owner": target.owner,
+      "project-order": ["account-only", "other"],
+    ], scope: "account:fixture")
+    let afterUnrelatedEdits = try Data(contentsOf: fixture.sqliteStateURL)
+    try service.synchronizeAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    try service.verifyAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: target.authenticationURL
+    )
+    XCTAssertEqual(try Data(contentsOf: fixture.sqliteStateURL), afterUnrelatedEdits)
+
+    try database.setSettings([
+      "electron-renderer-content-owner": target.owner,
+      "local-projects": ["shared": project("shared", name: "Renamed after login")],
+    ])
+    let afterTargetEdit = try Data(contentsOf: fixture.sqliteStateURL)
+    try service.recoverSource(sourceAuthenticationURL: source.authenticationURL)
+    XCTAssertEqual(try Data(contentsOf: fixture.sqliteStateURL), afterTargetEdit)
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), originalJSON)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.sharedStateURL.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.globalStateURL.appendingPathExtension("bak").path))
+  }
+
+  func testSQLiteRejectsWrongOrMissingOwnerEvenWhenJSONMatches() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    let target = fixture.account(.b)
+    try fixture.writeState(["electron-renderer-content-owner": source.owner, "project-order": [] as [String]])
+    let database = try fixture.makeGlobalStateDatabase()
+    try database.setSettings(["electron-renderer-content-owner": target.owner, "project-order": [] as [String]])
+    XCTAssertThrowsError(try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .identityMismatch)
+    }
+
+    try database.execute("DELETE FROM settings WHERE scope = 'global' AND key = 'electron-renderer-content-owner'")
+    try database.setSettings(["electron-renderer-content-owner": source.owner], scope: "account:fixture")
+    XCTAssertThrowsError(try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .unsupportedProjectLayout)
+    }
+  }
+
+  func testSQLiteRejectsCorruptOrUnsupportedDatabaseEvenWhenJSONMatches() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    try fixture.writeState(["electron-renderer-content-owner": source.owner, "project-order": [] as [String]])
+    let invalidDatabase = Data("fixture is not a SQLite database".utf8)
+    try fixture.writePrivate(invalidDatabase, to: fixture.sqliteStateURL)
+    XCTAssertThrowsError(try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
+    XCTAssertEqual(try Data(contentsOf: fixture.sqliteStateURL), invalidDatabase)
+
+    try FileManager.default.removeItem(at: fixture.sqliteStateURL)
+    let database = try fixture.makeGlobalStateDatabase()
+    try database.setSettings(["electron-renderer-content-owner": source.owner, "project-order": [] as [String]])
+    try database.execute("PRAGMA user_version = 2")
+    XCTAssertThrowsError(try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
+  }
+
+  func testSQLiteRejectsDatabaseSymlinkEvenWhenJSONMatches() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    let state = ["electron-renderer-content-owner": source.owner]
+    try fixture.writeState(state)
+    let relocated = fixture.sqliteStateURL.appendingPathExtension("fixture")
+    do {
+      let database = try fixture.makeGlobalStateDatabase()
+      try database.setSettings(state)
+    }
+    try FileManager.default.moveItem(at: fixture.sqliteStateURL, to: relocated)
+    try FileManager.default.createSymbolicLink(at: fixture.sqliteStateURL, withDestinationURL: relocated)
+    XCTAssertThrowsError(try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .unsafeStorage)
+    }
+  }
+
+  func testSQLiteRejectsProjectChangesAfterCapturingSwitchSnapshot() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    try FileManager.default.removeItem(at: fixture.globalStateURL)
+    let database = try fixture.makeGlobalStateDatabase()
+    try database.setSettings([
+      "electron-renderer-content-owner": source.owner,
+      "local-projects": ["one": project("one"), "two": project("two")],
+      "project-order": ["one", "two"],
+    ])
+    try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    try database.setSettings(["project-order": ["two", "one"]])
+    let afterProjectEdit = try Data(contentsOf: fixture.sqliteStateURL)
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )) { error in
+      XCTAssertEqual(error as? LocalProjectStateSynchronizationError, .stateMismatch)
+    }
+    XCTAssertEqual(try Data(contentsOf: fixture.sqliteStateURL), afterProjectEdit)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.globalStateURL.path))
+  }
+
+  func testSwitchPreparedWithJSONRejectsMidSwitchMigrationToSQLite() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    let target = fixture.account(.b)
+    let state: [String: Any] = [
+      "electron-renderer-content-owner": source.owner,
+      "local-projects": ["same": project("same")],
+      "project-order": ["same"],
+    ]
+    try fixture.writeState(state)
+    try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    let database = try fixture.makeGlobalStateDatabase()
+    try database.setSettings(state)
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
+    XCTAssertThrowsError(try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: target.authenticationURL
+    ))
+    try service.recoverSource(sourceAuthenticationURL: source.authenticationURL)
+  }
+
+  func testPartitionedJSONCanRecoverSourceAfterSQLiteMigration() throws {
+    let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    try service.prepareForExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    )
+    let originalJSON = try Data(contentsOf: fixture.globalStateURL)
+    let database = try fixture.makeGlobalStateDatabase()
+    try database.setSettings([
+      "electron-renderer-content-owner": source.owner,
+      "local-projects": ["source": project("source")],
+      "project-order": ["source"],
+    ])
+    let migratedDatabase = try Data(contentsOf: fixture.sqliteStateURL)
+    XCTAssertThrowsError(try service.synchronizeAfterExit(
+      activeAuthenticationURL: source.authenticationURL,
+      managedAuthenticationURLs: fixture.managedAuthenticationURLs
+    ))
+    try service.recoverSource(sourceAuthenticationURL: source.authenticationURL)
+    XCTAssertEqual(try Data(contentsOf: fixture.sqliteStateURL), migratedDatabase)
+    XCTAssertEqual(try Data(contentsOf: fixture.globalStateURL), originalJSON)
+  }
+
+  func testSQLiteReadsCurrentOwnerFromUncheckpointedWAL() throws {
+    let fixture = try makeFixture(sourceProjects: [], targetProjects: [])
+    let service = fixture.synchronizer(transaction: fixture.nextTransactionURL())
+    let source = fixture.account(.a)
+    let target = fixture.account(.b)
+    try fixture.writeState(["electron-renderer-content-owner": target.owner])
+    let database = try fixture.makeGlobalStateDatabase()
+    try database.setSettings(["electron-renderer-content-owner": target.owner])
+    try database.execute("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE)")
+    let checkpointed = try Data(contentsOf: fixture.sqliteStateURL)
+    try database.setSettings(["electron-renderer-content-owner": source.owner])
+    let walURL = URL(fileURLWithPath: fixture.sqliteStateURL.path + "-wal")
+    XCTAssertEqual(try Data(contentsOf: fixture.sqliteStateURL), checkpointed)
+    XCTAssertFalse(try Data(contentsOf: walURL).isEmpty)
+
+    try fixture.verifyAll(.a, using: service)
+    try service.prepareSwitch(
+      sourceAuthenticationURL: source.authenticationURL,
+      targetAuthenticationURL: target.authenticationURL
+    )
+    XCTAssertEqual(try Data(contentsOf: fixture.sqliteStateURL), checkpointed)
+    withExtendedLifetime(database) {}
+  }
+
   func testProjectDataWithNoRecognizedLayoutIsRejectedBeforeExit() throws {
     let fixture = try makeFixture(sourceProjects: [project("source")], targetProjects: [])
     let transaction = fixture.nextTransactionURL()
@@ -936,11 +1163,68 @@ private struct LocalProjectAccountFixture {
   let authenticationURL: URL
 }
 
+private final class ProjectStateDatabaseFixture {
+  private let database: OpaquePointer
+
+  init(url: URL) throws {
+    var database: OpaquePointer?
+    let result = sqlite3_open_v2(url.path, &database, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nil)
+    guard result == SQLITE_OK, let database else {
+      sqlite3_close(database)
+      throw NSError(domain: "ProjectStateDatabaseFixture", code: Int(result))
+    }
+    self.database = database
+  }
+
+  deinit { sqlite3_close(database) }
+
+  func execute(_ sql: String) throws {
+    let result = sqlite3_exec(database, sql, nil, nil, nil)
+    guard result == SQLITE_OK else {
+      let message = String(cString: sqlite3_errmsg(database))
+      throw NSError(
+        domain: "ProjectStateDatabaseFixture", code: Int(result),
+        userInfo: [NSLocalizedDescriptionKey: message]
+      )
+    }
+  }
+
+  func setSettings(_ values: [String: Any], scope: String = "global") throws {
+    for (key, value) in values {
+      let json = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed])
+      let encoded = String(decoding: json, as: UTF8.self)
+      try execute("""
+        INSERT OR REPLACE INTO settings (scope, key, value)
+        VALUES (\(literal(scope)), \(literal(key)), \(literal(encoded)))
+        """)
+    }
+  }
+
+  private func literal(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+  }
+}
+
 private struct LocalProjectFixture {
   let root: URL
 
   var globalStateURL: URL { root.appendingPathComponent(".codex/.codex-global-state.json") }
+  var sqliteStateURL: URL { globalStateURL.deletingPathExtension().appendingPathExtension("sqlite") }
   var sharedStateURL: URL { root.appendingPathComponent("shared-project-state.json") }
+
+  func makeGlobalStateDatabase() throws -> ProjectStateDatabaseFixture {
+    let database = try ProjectStateDatabaseFixture(url: sqliteStateURL)
+    try database.execute("""
+      PRAGMA user_version = 1;
+      CREATE TABLE settings (
+        scope TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        PRIMARY KEY (scope, key)
+      ) WITHOUT ROWID;
+      """)
+    return database
+  }
 
   func account(_ name: LocalProjectAccount) -> LocalProjectAccountFixture {
     let userID = "user-fixture-\(name.rawValue)"

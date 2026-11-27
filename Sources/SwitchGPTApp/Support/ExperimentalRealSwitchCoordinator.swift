@@ -91,7 +91,8 @@ enum ExperimentalRealSwitchCoordinator {
   static let sharedProjectStateURL = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/SwitchGPT-sly/LocalProjects/shared-state-v1.json")
   static let projectStateMonitor = LocalProjectStateMonitor(
-    observedURLs: [activeAuthenticationURL, globalProjectStateURL, sharedProjectStateURL],
+    observedURLs: [activeAuthenticationURL, sharedProjectStateURL]
+      + LocalProjectStateSynchronizer.observedStorageURLs(for: globalProjectStateURL),
     update: {
       try makeProjectStateSynchronizer(
         transactionDirectoryURL: sharedProjectStateURL.deletingLastPathComponent()
